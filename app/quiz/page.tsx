@@ -1,4 +1,4 @@
-// app/quiz/page.tsx
+// app/quiz/page.tsx - Enhanced with Confidence Tracking
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -11,7 +11,8 @@ import {
   BookOpen,
   Settings,
   Home,
-  Zap
+  Zap,
+  TrendingUp
 } from 'lucide-react'
 
 interface QuizSettings {
@@ -42,6 +43,8 @@ interface QuizState {
   timeStarted: number
   currentDifficulty: number
   hasStarted: boolean
+  confidence: number // NEW: Confidence level (0-1)
+  streakCount: number // NEW: Track streak for RL
 }
 
 export default function QuizSessionPage() {
@@ -58,7 +61,9 @@ export default function QuizSessionPage() {
     showResult: false,
     timeStarted: Date.now(),
     currentDifficulty: 5,
-    hasStarted: false
+    hasStarted: false,
+    confidence: 0.5, // NEW: Default to 50% confidence
+    streakCount: 0 // NEW: Track correct streak
   })
 
   const [feedback, setFeedback] = useState<{
@@ -66,6 +71,7 @@ export default function QuizSessionPage() {
     isCorrect: boolean
     message: string
     difficultyChange: string
+    rlInsights?: any // NEW: RL feedback
   }>({
     show: false,
     isCorrect: false,
@@ -172,7 +178,8 @@ export default function QuizSessionPage() {
         selectedAnswer: '',
         showResult: false,
         timeStarted: Date.now(),
-        isLoading: false
+        isLoading: false,
+        confidence: 0.5 // NEW: Reset confidence for each question
       }))
       
       setFeedback({ show: false, isCorrect: false, message: '', difficultyChange: '' })
@@ -186,83 +193,103 @@ export default function QuizSessionPage() {
     }
   }
 
-// Update your submitAnswer function in app/quiz/page.tsx
+  // ENHANCED: Submit answer with confidence tracking
+  const submitAnswer = async () => {
+    if (!quiz.selectedAnswer || !quiz.currentQuestion || !quiz.sessionId) return
 
-const submitAnswer = async () => {
-  if (!quiz.selectedAnswer || !quiz.currentQuestion || !quiz.sessionId) return
-
-  const isCorrect = quiz.selectedAnswer === quiz.currentQuestion.correctAnswer
-  const timeSpent = (Date.now() - quiz.timeStarted) / 1000
-
-  // Calculate new difficulty (adaptive logic)
-  let newDifficulty = quiz.currentDifficulty
-  let difficultyChange = ''
-
-  if (settings?.adaptiveMode) {
-    if (isCorrect) {
-      newDifficulty = Math.min(10, quiz.currentDifficulty + 0.5)
-      difficultyChange = newDifficulty > quiz.currentDifficulty ? '📈 Difficulty increased!' : ''
-    } else {
-      newDifficulty = Math.max(1, quiz.currentDifficulty - 0.5)
-      difficultyChange = newDifficulty < quiz.currentDifficulty ? '📉 Difficulty decreased' : ''
-    }
-  }
-
-  // Show immediate feedback
-  setQuiz(prev => ({ 
-    ...prev, 
-    showResult: true,
-    score: isCorrect ? prev.score + 1 : prev.score,
-    currentDifficulty: newDifficulty
-  }))
-
-  setFeedback({
-    show: true,
-    isCorrect,
-    message: isCorrect 
-      ? '🎉 Correct! Well done!' 
-      : `❌ Incorrect. The correct answer was: ${quiz.currentQuestion.correctAnswer}`,
-    difficultyChange
-  })
-
-  // 🔥 NEW: Save answer to database
-  try {
-    console.log('💾 Saving answer to database...')
+    const isCorrect = quiz.selectedAnswer === quiz.currentQuestion.correctAnswer
+    const timeSpent = (Date.now() - quiz.timeStarted) / 1000
     
-    const response = await fetch('/api/quiz/submit-answer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: quiz.sessionId,
-        questionId: quiz.currentQuestion.id,
-        userAnswer: quiz.selectedAnswer,
-        correctAnswer: quiz.currentQuestion.correctAnswer,
-        timeSpent: Math.round(timeSpent),
-        currentDifficulty: quiz.currentDifficulty
-      })
-    })
+    // Update streak count
+    const newStreakCount = isCorrect ? quiz.streakCount + 1 : 0
 
-    const result = await response.json()
-    
-    if (result.success) {
-      console.log('✅ Answer saved successfully:', result)
+    // Show immediate feedback
+    setQuiz(prev => ({ 
+      ...prev, 
+      showResult: true,
+      score: isCorrect ? prev.score + 1 : prev.score,
+      streakCount: newStreakCount
+    }))
+
+    // Enhanced submission with confidence and streak data
+    try {
+      console.log('💾 Saving answer with confidence:', quiz.confidence)
       
-      // Update difficulty from server response if different
-      if (result.result?.newDifficulty && settings?.adaptiveMode) {
-        setQuiz(prev => ({ 
-          ...prev, 
-          currentDifficulty: result.result.newDifficulty 
-        }))
+      const response = await fetch('/api/quiz/submit-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: quiz.sessionId,
+          questionId: quiz.currentQuestion.id,
+          userAnswer: quiz.selectedAnswer,
+          correctAnswer: quiz.currentQuestion.correctAnswer,
+          timeSpent: Math.round(timeSpent),
+          currentDifficulty: quiz.currentDifficulty,
+          confidence: quiz.confidence, // NEW: Send confidence
+          streakCount: quiz.streakCount // NEW: Send streak for RL
+        })
+      })
+
+      const result = await response.json()
+      
+      if (result.success && result.result) {
+        console.log('✅ Enhanced RL result:', result.result)
+        
+        // Update difficulty from enhanced RL agent
+        if (result.result.newDifficulty && settings?.adaptiveMode) {
+          setQuiz(prev => ({ 
+            ...prev, 
+            currentDifficulty: result.result.newDifficulty 
+          }))
+        }
+
+        // Get difficulty change message
+        let difficultyChange = ''
+        if (settings?.adaptiveMode && result.result.newDifficulty !== quiz.currentDifficulty) {
+          const change = result.result.newDifficulty - quiz.currentDifficulty
+          if (change > 0) {
+            difficultyChange = `📈 Difficulty increased (+${change.toFixed(1)})`
+          } else {
+            difficultyChange = `📉 Difficulty decreased (${change.toFixed(1)})`
+          }
+        }
+
+        // Enhanced feedback with RL insights
+        setFeedback({
+          show: true,
+          isCorrect,
+          message: isCorrect 
+            ? '🎉 Correct! Well done!' 
+            : `❌ Incorrect. The correct answer was: ${quiz.currentQuestion.correctAnswer}`,
+          difficultyChange,
+          rlInsights: result.result.rlInsights // NEW: RL feedback
+        })
+        
+      } else {
+        // Fallback feedback if API fails
+        setFeedback({
+          show: true,
+          isCorrect,
+          message: isCorrect 
+            ? '🎉 Correct! Well done!' 
+            : `❌ Incorrect. The correct answer was: ${quiz.currentQuestion.correctAnswer}`,
+          difficultyChange: ''
+        })
       }
-    } else {
-      console.error('❌ Failed to save answer:', result.error)
-      // Don't break the quiz, just log the error
+    } catch (error) {
+      console.error('❌ Error saving answer:', error)
+      
+      // Show basic feedback even if API fails
+      setFeedback({
+        show: true,
+        isCorrect,
+        message: isCorrect 
+          ? '🎉 Correct! Well done!' 
+          : `❌ Incorrect. The correct answer was: ${quiz.currentQuestion.correctAnswer}`,
+        difficultyChange: ''
+      })
     }
-  } catch (error) {
-    console.error('❌ Error saving answer:', error)
-    // Don't break the quiz, just log the error
   }
-}
 
   // Move to next question or finish
   const nextQuestion = () => {
@@ -285,6 +312,15 @@ const submitAnswer = async () => {
     
     alert(`Quiz Complete! 🎉\nScore: ${quiz.score}/${quiz.totalQuestions} (${percentage}%)\nFinal Difficulty: ${quiz.currentDifficulty.toFixed(1)}/10`)
     router.push('/dashboard')
+  }
+
+  // NEW: Confidence level descriptions
+  const getConfidenceDescription = (confidence: number) => {
+    if (confidence < 0.2) return { text: "Very Uncertain", color: "text-red-600", emoji: "😰" }
+    if (confidence < 0.4) return { text: "Uncertain", color: "text-orange-600", emoji: "😕" }
+    if (confidence < 0.6) return { text: "Somewhat Confident", color: "text-yellow-600", emoji: "😐" }
+    if (confidence < 0.8) return { text: "Confident", color: "text-blue-600", emoji: "😊" }
+    return { text: "Very Confident", color: "text-green-600", emoji: "😎" }
   }
 
   // If no settings loaded yet
@@ -357,17 +393,21 @@ const submitAnswer = async () => {
               </div>
             </div>
 
-            {/* Adaptive Mode Explanation */}
+            {/* Enhanced Adaptive Mode Explanation */}
             {settings.adaptiveMode && (
               <div className="mt-6 p-4 bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg border border-purple-200">
                 <div className="flex items-center mb-2">
                   <Brain className="h-5 w-5 text-purple-600 mr-2" />
-                  <h3 className="font-semibold text-purple-800">🧠 AI Will Adapt to You</h3>
+                  <h3 className="font-semibold text-purple-800">🧠 Enhanced AI Learning</h3>
                 </div>
-                <p className="text-sm text-purple-700">
-                  The system will adjust question difficulty based on your performance. 
-                  Get it right → harder questions. Get it wrong → easier questions.
+                <p className="text-sm text-purple-700 mb-2">
+                  The system uses advanced reinforcement learning to optimize your learning experience:
                 </p>
+                <ul className="text-xs text-purple-600 space-y-1 ml-4">
+                  <li>• <strong>Confidence tracking:</strong> Rate how sure you are of each answer</li>
+                  <li>• <strong>Multi-objective optimization:</strong> Balances learning, efficiency, and retention</li>
+                  <li>• <strong>Metacognitive insights:</strong> Learn about your own learning patterns</li>
+                </ul>
               </div>
             )}
           </div>
@@ -415,7 +455,7 @@ const submitAnswer = async () => {
     )
   }
 
-  // Show actual quiz interface (same as before but after quiz has started)
+  // Show actual quiz interface
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-3xl mx-auto">
@@ -428,7 +468,7 @@ const submitAnswer = async () => {
               </h1>
               <p className="text-sm text-gray-600 flex items-center mt-1">
                 <Brain className="h-4 w-4 mr-1" />
-                {settings.adaptiveMode ? 'Adaptive Mode Active' : 'Fixed Difficulty'}
+                {settings.adaptiveMode ? 'Enhanced RL Active' : 'Fixed Difficulty'}
               </p>
             </div>
             <div className="text-right">
@@ -438,6 +478,12 @@ const submitAnswer = async () => {
                 <Target className="h-3 w-3 mr-1" />
                 Difficulty: {quiz.currentDifficulty.toFixed(1)}/10
               </p>
+              {quiz.streakCount > 0 && (
+                <p className="text-xs text-green-600 flex items-center justify-end">
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  Streak: {quiz.streakCount}
+                </p>
+              )}
             </div>
           </div>
           
@@ -499,7 +545,52 @@ const submitAnswer = async () => {
                 )) || <p className="text-red-500">No options available</p>}
               </div>
 
-              {/* Feedback */}
+              {/* NEW: Confidence Tracker */}
+              {!quiz.showResult && quiz.selectedAnswer && (
+                <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                  <div className="flex items-center mb-3">
+                    <Brain className="h-5 w-5 text-purple-600 mr-2" />
+                    <h3 className="font-semibold text-purple-800">How confident are you in this answer?</h3>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {/* Confidence Slider */}
+                    <div className="relative">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={quiz.confidence}
+                        onChange={(e) => setQuiz(prev => ({ ...prev, confidence: parseFloat(e.target.value) }))}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                        style={{
+                          background: `linear-gradient(to right, 
+                            #ef4444 0%, #f97316 20%, #eab308 40%, 
+                            #3b82f6 60%, #059669 80%, #059669 100%)`
+                        }}
+                      />
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>Very Uncertain</span>
+                        <span>Somewhat Sure</span>
+                        <span>Very Confident</span>
+                      </div>
+                    </div>
+                    
+                    {/* Confidence Display */}
+                    <div className="text-center">
+                      <span className={`text-lg font-medium ${getConfidenceDescription(quiz.confidence).color}`}>
+                        {getConfidenceDescription(quiz.confidence).emoji} {getConfidenceDescription(quiz.confidence).text}
+                      </span>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {Math.round(quiz.confidence * 100)}% confident
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Enhanced Feedback with RL Insights */}
               {feedback.show && (
                 <div className={`p-4 rounded-lg border ${
                   feedback.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
@@ -509,9 +600,24 @@ const submitAnswer = async () => {
                   }`}>
                     {feedback.message}
                   </p>
+                  
+                  {/* RL Insights */}
+                  {feedback.rlInsights && (
+                    <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="flex items-center mb-2">
+                        <Brain className="h-4 w-4 text-purple-600 mr-2" />
+                        <h4 className="font-medium text-purple-800">🧠 Learning Insights</h4>
+                      </div>
+                      <div className="text-sm text-purple-700 space-y-1">
+                        <p>• <strong>Confidence calibration:</strong> {feedback.rlInsights.confidenceCalibration === 'good' ? '✅ Well calibrated!' : '⚠️ Needs improvement'}</p>
+                        <p>• <strong>Learning reward:</strong> {feedback.rlInsights.reward > 0 ? '🎯 Positive learning signal' : '📚 Room for growth'}</p>
+                      </div>
+                    </div>
+                  )}
+                  
                   {feedback.difficultyChange && (
-                    <p className="text-sm text-purple-600 mt-1 flex items-center">
-                      <Brain className="h-3 w-3 mr-1" />
+                    <p className="text-sm text-purple-600 mt-2 flex items-center">
+                      <Target className="h-3 w-3 mr-1" />
                       {feedback.difficultyChange}
                     </p>
                   )}

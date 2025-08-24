@@ -142,14 +142,6 @@ export default async function Dashboard() {
                   <p className="text-blue-100">Choose your subject and begin adaptive learning</p>
                 </div>
               </Link>
-
-              <Link href="/ai-test">
-                <div className="group bg-gradient-to-br from-purple-500 to-purple-600 p-6 rounded-xl text-white cursor-pointer hover:from-purple-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-105">
-                  <Brain className="h-8 w-8 mb-3" />
-                  <h3 className="text-xl font-semibold mb-2">AI Test</h3>
-                  <p className="text-purple-100">Test the AI question generation</p>
-                </div>
-              </Link>
             </div>
           </div>
 
