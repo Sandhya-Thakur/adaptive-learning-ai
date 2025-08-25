@@ -1,15 +1,9 @@
-
 // app/dashboard/page.tsx
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { DashboardHelpers } from "@/lib/db/helpers";
-import { 
-  Brain,
-  Target,
-  Clock,
-  Award
-} from "lucide-react";
+import { Brain, Target, Clock, Award } from "lucide-react";
 
 // Import optimized dashboard components
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
@@ -19,31 +13,34 @@ import OptimizedSubjectProgress from "@/components/dashboard/SubjectProgress";
 import OptimizedTodaysGoal from "@/components/dashboard/TodaysGoal";
 import OptimizedRecentActivity from "@/components/dashboard/RecentActivity";
 import OptimizedAchievements from "@/components/dashboard/Achievements";
+import KnowledgeGraphDashboard from "@/components/dashboard/KnowledgeGraphDashboard";
 
 export default async function Dashboard() {
   const { userId } = await auth();
-  
+
   if (!userId) {
     redirect("/");
   }
 
   // Get current user from Clerk
   const clerkUser = await currentUser();
-  
+
   if (!clerkUser?.emailAddresses[0]?.emailAddress) {
     redirect("/");
   }
 
   const email = clerkUser.emailAddresses[0].emailAddress;
-  
+
   try {
     // Ensure user exists in database
     let existingUser = await db.getUserByEmail(email);
-    
+
     if (!existingUser) {
       // Create user in our database
       await db.createUser({
-        name: `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() || "Anonymous",
+        name:
+          `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() ||
+          "Anonymous",
         email: email,
         current_subjects: [],
         knowledge_state: {},
@@ -52,8 +49,8 @@ export default async function Dashboard() {
         study_streak: 0,
         total_questions_answered: 0,
       });
-      console.log(`✅ User synced to database: ${email}`);
-      
+      console.log(`User synced to database: ${email}`);
+
       // Fetch the newly created user
       existingUser = await db.getUserByEmail(email);
     }
@@ -62,48 +59,50 @@ export default async function Dashboard() {
       throw new Error("Failed to create or fetch user");
     }
 
-    // 🎯 FETCH REAL DATA using helper functions
-    console.log("📊 Fetching real dashboard data...");
-    
+    // Fetch real data using helper functions
+    console.log("Fetching real dashboard data...");
+
     const [
       realUserStats,
       realSubjectProgress,
       realRecentActivity,
-      realAchievements
+      realAchievements,
     ] = await Promise.all([
       DashboardHelpers.getUserStats(existingUser.id),
       DashboardHelpers.getSubjectProgress(existingUser.id),
       DashboardHelpers.getRecentActivity(existingUser.id, 5),
-      DashboardHelpers.getUserAchievements(existingUser.id)
+      DashboardHelpers.getUserAchievements(existingUser.id),
     ]);
 
-    console.log("✅ Real data fetched:", {
+    console.log("Real data fetched:", {
       questions: realUserStats.totalQuestionsAnswered,
       accuracy: realUserStats.overallAccuracy,
       subjects: realSubjectProgress.length,
-      activities: realRecentActivity.length
+      activities: realRecentActivity.length,
     });
 
     // Format study time for display
     const formatStudyTime = (minutes: number): string => {
-      if (minutes === 0) return '0m';
+      if (minutes === 0) return "0m";
       if (minutes < 60) return `${minutes}m`;
       const hours = Math.floor(minutes / 60);
       const remainingMinutes = minutes % 60;
-      return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+      return remainingMinutes > 0
+        ? `${hours}h ${remainingMinutes}m`
+        : `${hours}h`;
     };
 
     // Calculate today's goal progress (sessions completed today)
     const today = new Date().toDateString();
-    const sessionsToday = realRecentActivity.filter(activity => 
-      activity.time.includes('hour') && activity.type === 'quiz'
+    const sessionsToday = realRecentActivity.filter(
+      (activity) => activity.time.includes("hour") && activity.type === "quiz"
     ).length;
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
         {/* Header with real data */}
-        <DashboardHeader 
-          userName={clerkUser?.firstName || 'User'}
+        <DashboardHeader
+          userName={clerkUser?.firstName || "User"}
           currentStreak={realUserStats.currentStreak}
         />
 
@@ -142,7 +141,7 @@ export default async function Dashboard() {
           />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Left Column - Main Actions */}
           <div className="lg:col-span-2 space-y-6">
             {/* Quick Start */}
@@ -163,63 +162,83 @@ export default async function Dashboard() {
 
             {/* Real Recent Activity */}
             <OptimizedRecentActivity
-              activities={realRecentActivity.map(activity => ({
+              activities={realRecentActivity.map((activity) => ({
                 ...activity,
-                type: activity.type as "quiz" | "session" | "achievement"
-              }))}
-            />
-
-            {/* Real Achievements */}
-            <OptimizedAchievements
-              achievements={realAchievements.map(a => ({
-                ...a,
-                rarity:
-                  a.rarity === "common" ||
-                  a.rarity === "rare" ||
-                  a.rarity === "epic"
-                    ? a.rarity
-                    : undefined
+                type: activity.type as "quiz" | "session" | "achievement",
               }))}
             />
           </div>
         </div>
 
+        {/* Knowledge Graph Section */}
+        <div className="mt-8">
+          <KnowledgeGraphDashboard userId={existingUser.id} />
+        </div>
+
+        {/* Real Achievements */}
+        <OptimizedAchievements
+          achievements={realAchievements.map((a) => ({
+            ...a,
+            rarity:
+              a.rarity === "common" ||
+              a.rarity === "rare" ||
+              a.rarity === "epic"
+                ? a.rarity
+                : undefined,
+          }))}
+        />
+
         {/* Debug Info (remove in production) */}
-        {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === "development" && (
           <div className="mt-8 p-4 bg-gray-100 rounded-lg text-xs">
-            <h3 className="font-bold mb-2">🐛 Debug Info (Dev Only):</h3>
+            <h3 className="font-bold mb-2">Debug Info (Dev Only):</h3>
             <p>Total Sessions: {realUserStats.totalSessions}</p>
             <p>Average Session: {realUserStats.averageSessionDuration}min</p>
-            <p>Subjects Tracked: {realSubjectProgress.map(s => s.subject).join(', ')}</p>
+            <p>
+              Subjects Tracked:{" "}
+              {realSubjectProgress.map((s) => s.subject).join(", ")}
+            </p>
             <p>Recent Activities: {realRecentActivity.length}</p>
-            <p>Earned Achievements: {realAchievements.filter(a => a.earned).length}</p>
+            <p>
+              Earned Achievements:{" "}
+              {realAchievements.filter((a) => a.earned).length}
+            </p>
           </div>
         )}
       </div>
     );
-
   } catch (error) {
-    console.error("❌ Dashboard error:", error);
-    
+    console.error("Dashboard error:", error);
+
     // Fallback UI for errors
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-        <DashboardHeader 
-          userName={clerkUser?.firstName || 'User'}
+        <DashboardHeader
+          userName={clerkUser?.firstName || "User"}
           currentStreak={0}
         />
-        
-        <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Welcome to AdaptiveLearn AI! 🎉</h2>
+
+        <div className="bg-white rounded-xl shadow-sm p-8 text-center mb-8">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">
+            Welcome to AdaptiveLearn AI!
+          </h2>
           <p className="text-gray-600 mb-6">
-            Ready to start your personalized learning journey? Take your first quiz to see your progress here.
+            Ready to start your personalized learning journey? Take your first
+            quiz to see your progress here.
           </p>
           <OptimizedQuickStart />
         </div>
-        
-        {process.env.NODE_ENV === 'development' && (
+
+        {/* Show knowledge graph structure even for new users */}
+        <div className="mt-8">
+          <KnowledgeGraphDashboard userId="new-user" />
+        </div>
+
+        {process.env.NODE_ENV === "development" && (
           <div className="mt-4 p-4 bg-red-100 rounded-lg">
-            <p className="text-red-800 text-sm">🐛 Error: {error instanceof Error ? error.message : 'Unknown error'}</p>
+            <p className="text-red-800 text-sm">
+              Debug: {error instanceof Error ? error.message : "Unknown error"}
+            </p>
           </div>
         )}
       </div>

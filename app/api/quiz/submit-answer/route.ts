@@ -1,8 +1,8 @@
 // app/api/quiz/submit-answer/route.ts
-
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
+import { KnowledgeGraphService } from '@/lib/db/knowledge-graph'
 
 // Enhanced RL Agent - Step 1: Add basic multi-objective rewards
 class EnhancedRLAgent {
@@ -130,8 +130,8 @@ export async function POST(req: Request) {
       correctAnswer, 
       timeSpent, 
       currentDifficulty,
-      confidence, // NEW: Add confidence field
-      streakCount = 0 // NEW: Add streak tracking
+      confidence, 
+      streakCount = 0 
     } = await req.json()
 
     if (!sessionId || !questionId || !userAnswer) {
@@ -143,16 +143,68 @@ export async function POST(req: Request) {
 
     const isCorrect = userAnswer === correctAnswer
     
-    // NEW: Calculate multi-objective reward
+    // Get user info for knowledge graph
+    const clerkUser = await currentUser()
+    const userEmail = clerkUser?.emailAddresses[0]?.emailAddress
+    if (!userEmail) {
+      throw new Error('User email not found')
+    }
+    
+    const dbUser = await db.getUserByEmail(userEmail)
+    if (!dbUser) {
+      throw new Error('User not found in database')
+    }
+
+    // NEW: Get question details for knowledge graph integration
+    const questionQuery = `
+      SELECT q.*, qs.subject 
+      FROM questions q
+      JOIN quiz_sessions qs ON q.session_id = qs.id
+      WHERE q.id = $1
+    `
+    const questionResult = await db.query(questionQuery, [questionId])
+    const questionData = questionResult.rows[0]
+
+    if (!questionData) {
+      throw new Error('Question not found')
+    }
+
+    // NEW: Knowledge Graph Integration - Detect and track topic mastery
+    let topicId = null
+    if (questionData.topic_id) {
+      // Use existing topic_id if already set
+      topicId = questionData.topic_id
+    } else {
+      // Auto-detect topic from question content
+      const detectedTopic = await KnowledgeGraphService.getTopicByQuestion(
+        questionData.subject,
+        questionData.question_text,
+        currentDifficulty / 10
+      )
+      
+      if (detectedTopic) {
+        topicId = detectedTopic.id
+        
+        // Update question with detected topic_id for future use
+        await db.query(
+          'UPDATE questions SET topic_id = $1 WHERE id = $2',
+          [topicId, questionId]
+        )
+        
+        console.log(`🎯 Topic detected: ${detectedTopic.topic_name} for question "${questionData.question_text.substring(0, 50)}..."`)
+      }
+    }
+
+    // Calculate multi-objective reward
     const rewardData = rlAgent.calculateReward(
       isCorrect,
-      confidence || 0.5, // Default confidence if not provided
+      confidence || 0.5,
       timeSpent,
       currentDifficulty,
       streakCount
     );
     
-    // NEW: Enhanced difficulty adjustment using RL
+    // Enhanced difficulty adjustment using RL
     const newDifficulty = rlAgent.calculateNewDifficulty(
       currentDifficulty,
       rewardData.reward,
@@ -167,19 +219,36 @@ export async function POST(req: Request) {
       userAnswer,
       isCorrect,
       timeSpent: Math.round(timeSpent),
-      // @ts-expect-error: confidence_level is an extra property for extended analytics
-      confidence_level: confidence ? Math.round(confidence * 5) : null // Convert 0-1 to 1-5 scale
+      confidence_level: confidence ? Math.round(confidence * 5) : null
+    } as {
+      sessionId: string;
+      questionId: string;
+      userAnswer: string;
+      isCorrect: boolean;
+      timeSpent: number;
+      confidence_level: number | null;
     })
 
     // Update quiz session with new difficulty and RL data
     await db.updateQuizSession(sessionId, {
       currentDifficulty: newDifficulty,
-      // Store RL metrics for future analysis
       lastReward: rewardData.reward,
       totalReward: null // TODO: Track cumulative reward
     })
 
-    console.log(`🧠 Enhanced RL: ${isCorrect ? '✅' : '❌'} | Confidence: ${confidence?.toFixed(2)} | Reward: ${rewardData.reward.toFixed(3)} | Difficulty: ${currentDifficulty} → ${newDifficulty}`)
+    // NEW: Update topic mastery in knowledge graph
+    if (topicId) {
+      await KnowledgeGraphService.updateTopicMastery(
+        dbUser.id,
+        topicId,
+        isCorrect,
+        confidence || 0.5
+      )
+      
+      console.log(`📈 Topic mastery updated: ${isCorrect ? 'improved' : 'practicing'} for topic ${topicId}`)
+    }
+
+    console.log(`🧠 Enhanced RL + KG: ${isCorrect ? '✅' : '❌'} | Confidence: ${confidence?.toFixed(2)} | Reward: ${rewardData.reward.toFixed(3)} | Difficulty: ${currentDifficulty} → ${newDifficulty} | Topic: ${topicId ? 'tracked' : 'none'}`)
 
     return NextResponse.json({
       success: true,
@@ -189,13 +258,14 @@ export async function POST(req: Request) {
         previousDifficulty: currentDifficulty,
         newDifficulty,
         timeSpent: Math.round(timeSpent),
-        // NEW: Return RL insights for UI
+        // Enhanced RL insights
         rlInsights: {
           reward: rewardData.reward,
           rewardBreakdown: rewardData.breakdown,
           confidenceCalibration: confidence ? 
             ((isCorrect && confidence > 0.7) || (!isCorrect && confidence < 0.4)) ? 'good' : 'needs_work'
-            : 'unknown'
+            : 'unknown',
+          topicTracked: topicId !== null
         }
       },
       message: isCorrect ? 'Correct answer!' : 'Incorrect answer'
