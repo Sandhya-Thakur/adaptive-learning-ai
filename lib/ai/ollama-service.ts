@@ -1,4 +1,4 @@
-// lib/ai/ollama-service.ts
+// lib/ai/ollama-service.ts - Enhanced with OpenAI-style prompting
 
 interface OllamaResponse {
   model: string
@@ -15,7 +15,7 @@ class OllamaService {
     return this.callOllama(prompt)
   }
 
-  // FIXED: Now properly scales difficulty for each subject
+  // ENHANCED: OpenAI-style prompting with clear instructions and examples
   private buildQuestionPrompt(subject: string, difficulty: number, userLevel: string): string {
     const difficultyLevel = Math.max(1, Math.min(10, Math.round(difficulty)));
     console.log(`🎯 Generating ${subject} question at difficulty ${difficultyLevel}/10`);
@@ -36,258 +36,428 @@ class OllamaService {
       return this.buildEnglishPrompt(difficultyLevel, userLevel);
     }
 
-    // Fallback with proper difficulty scaling
     return this.buildGenericPrompt(subject, difficultyLevel, userLevel);
   }
 
   private buildMathPrompt(difficulty: number): string {
-    let mathContent = '';
+    // Define question types by difficulty with variety
+    let questionTypes: string[] = [];
+    let examples = '';
     
     if (difficulty <= 2) {
-      // Easy: Single digit multiplication
-      const num1 = Math.floor(Math.random() * 7) + 2; // 2-8
-      const num2 = Math.floor(Math.random() * 7) + 2; // 2-8
-      const answer = num1 * num2;
-      
-      mathContent = `
-Question: What is ${num1} × ${num2}?
-Topic: Basic multiplication
-Difficulty: Easy (${difficulty}/10)
-Answer: ${answer}`;
+      questionTypes = ['single_digit_multiplication', 'single_digit_addition', 'basic_subtraction'];
+      examples = `
+EXAMPLE 1:
+Question: What is 7 × 6?
+A) 42
+B) 36
+C) 48  
+D) 40
+Correct Answer: A) 42
+
+EXAMPLE 2:
+Question: What is 15 + 23?
+A) 38
+B) 35
+C) 42
+D) 40
+Correct Answer: A) 38`;
       
     } else if (difficulty <= 4) {
-      // Medium-Easy: Two digit multiplication or division
-      const num1 = Math.floor(Math.random() * 90) + 10; // 10-99
-      const num2 = Math.floor(Math.random() * 9) + 2;   // 2-10
-      const operation = Math.random() > 0.5 ? '×' : '÷';
-      
-      if (operation === '×') {
-        const answer = num1 * num2;
-        mathContent = `
-Question: What is ${num1} × ${num2}?
-Topic: Two-digit multiplication
-Difficulty: Medium-Easy (${difficulty}/10)
-Answer: ${answer}`;
-      } else {
-        // Make sure division works out evenly
-        const answer = num2;
-        const dividend = num1 * num2;
-        mathContent = `
-Question: What is ${dividend} ÷ ${num1}?
-Topic: Division
-Difficulty: Medium-Easy (${difficulty}/10)
-Answer: ${answer}`;
-      }
+      questionTypes = ['two_digit_multiplication', 'division_with_remainder', 'basic_fractions'];
+      examples = `
+EXAMPLE 1:
+Question: What is 24 × 3?
+A) 72
+B) 68
+C) 76
+D) 70
+Correct Answer: A) 72
+
+EXAMPLE 2:
+Question: What is 84 ÷ 7?
+A) 11
+B) 12
+C) 13
+D) 14
+Correct Answer: B) 12`;
       
     } else if (difficulty <= 6) {
-      // Medium: Fractions, decimals, or percentages
-      const topics = ['fractions', 'decimals', 'percentages'];
-      const topic = topics[Math.floor(Math.random() * topics.length)];
-      
-      if (topic === 'fractions') {
-        const num1 = Math.floor(Math.random() * 8) + 1;
-        const den1 = Math.floor(Math.random() * 8) + 2;
-        mathContent = `
-Question: Convert the fraction ${num1}/${den1} to a decimal (round to 2 places)
-Topic: Fraction to decimal conversion
-Difficulty: Medium (${difficulty}/10)
-Answer: ${(num1/den1).toFixed(2)}`;
-      } else if (topic === 'percentages') {
-        const percentage = Math.floor(Math.random() * 80) + 10;
-        const total = Math.floor(Math.random() * 90) + 10;
-        const answer = Math.round((percentage / 100) * total);
-        mathContent = `
-Question: What is ${percentage}% of ${total}?
-Topic: Percentage calculation
-Difficulty: Medium (${difficulty}/10)
-Answer: ${answer}`;
-      }
+      questionTypes = ['percentages', 'decimal_operations', 'fraction_to_decimal'];
+      examples = `
+EXAMPLE 1:
+Question: What is 25% of 80?
+A) 20
+B) 15
+C) 25
+D) 30
+Correct Answer: A) 20
+
+EXAMPLE 2:
+Question: Convert 3/4 to a decimal
+A) 0.75
+B) 0.34
+C) 0.43
+D) 0.67
+Correct Answer: A) 0.75`;
       
     } else if (difficulty <= 8) {
-      // Hard: Algebra or geometry
-      const topics = ['algebra', 'geometry'];
-      const topic = topics[Math.floor(Math.random() * topics.length)];
-      
-      if (topic === 'algebra') {
-        const a = Math.floor(Math.random() * 5) + 2;
-        const b = Math.floor(Math.random() * 10) + 5;
-        const answer = Math.round((b - 1) / a);
-        mathContent = `
-Question: Solve for x: ${a}x + 1 = ${b}
-Topic: Linear algebra
-Difficulty: Hard (${difficulty}/10)
-Answer: x = ${answer}`;
-      } else {
-        const radius = Math.floor(Math.random() * 8) + 3;
-        const area = Math.round(Math.PI * radius * radius * 100) / 100;
-        mathContent = `
-Question: What is the area of a circle with radius ${radius} units? (Use π ≈ 3.14)
-Topic: Circle geometry
-Difficulty: Hard (${difficulty}/10)
-Answer: ${area} square units`;
-      }
+      questionTypes = ['basic_algebra', 'geometry_area', 'compound_operations'];
+      examples = `
+EXAMPLE 1:
+Question: If 2x + 5 = 17, what is x?
+A) 6
+B) 5
+C) 7
+D) 4
+Correct Answer: A) 6
+
+EXAMPLE 2:
+Question: What is the area of a rectangle with length 8 and width 5?
+A) 40
+B) 26
+C) 35
+D) 45
+Correct Answer: A) 40`;
       
     } else {
-      // Very Hard: Advanced topics
-      const topics = ['quadratic', 'trigonometry', 'logarithms'];
-      const topic = topics[Math.floor(Math.random() * topics.length)];
-      
-      mathContent = `
-Question: Advanced ${topic} problem
-Topic: ${topic}
-Difficulty: Very Hard (${difficulty}/10)
-Note: Generate an appropriate ${topic} question for advanced students`;
+      questionTypes = ['quadratic_equations', 'advanced_geometry', 'logarithms'];
+      examples = `
+EXAMPLE 1:
+Question: Solve x² - 5x + 6 = 0. What are the solutions?
+A) x = 2, 3
+B) x = 1, 6
+C) x = -2, -3
+D) x = 0, 5
+Correct Answer: A) x = 2, 3`;
     }
+    
+    const randomType = questionTypes[Math.floor(Math.random() * questionTypes.length)];
+    
+    return `You are a precise math question generator. Create exactly one math question.
 
-    return `Create a math question with these specifications:
-${mathContent}
+DIFFICULTY LEVEL: ${difficulty}/10
+QUESTION TYPE: ${randomType}
 
-REQUIREMENTS:
-- Generate exactly this difficulty level: ${difficulty}/10
-- Provide exactly 4 answer choices labeled A, B, C, D
-- Make one answer clearly correct
-- Create 3 plausible but incorrect distractors
-- Show your work/explanation if complex
+STRICT REQUIREMENTS:
+1. Generate a mathematically correct question and answer
+2. Verify your math before providing the answer
+3. Create exactly 4 answer choices labeled A), B), C), D)
+4. Make one choice clearly correct, three clearly incorrect
+5. Use clean formatting with no explanations in the choices
+6. End with "Correct Answer: [LETTER]) [VALUE]"
 
-FORMAT:
-Question: [The question]
-A) [Option A]
-B) [Option B] 
-C) [Option C]
-D) [Option D]
+${examples}
 
-Correct Answer: [Letter]) [Value]
+FORMATTING RULES:
+- Question: [Clear, concise question]
+- A) [First option - clean number/text only]
+- B) [Second option - clean number/text only] 
+- C) [Third option - clean number/text only]
+- D) [Fourth option - clean number/text only]
+- Correct Answer: [Letter]) [Exact value from choices]
 
-Generate this math question now:`;
+MATH VERIFICATION REQUIRED:
+- Double-check your arithmetic
+- Ensure the correct answer actually solves the problem
+- Make distractors plausible but clearly wrong
+
+Now generate ONE ${randomType} question at difficulty ${difficulty}/10:`;
   }
 
   private buildSciencePrompt(difficulty: number, userLevel: string): string {
     let topics: string[] = [];
-    let complexityNote = '';
+    let complexity = '';
+    let examples = '';
     
     if (difficulty <= 3) {
-      topics = ['basic animals', 'weather', 'plants', 'colors in nature', 'day and night'];
-      complexityNote = 'Keep it simple with basic facts and observations.';
+      topics = ['basic_biology', 'simple_chemistry', 'weather', 'animals'];
+      complexity = 'elementary level with simple vocabulary';
+      examples = `
+EXAMPLE:
+Question: What gas do plants need for photosynthesis?
+A) Carbon dioxide
+B) Oxygen  
+C) Nitrogen
+D) Helium
+Correct Answer: A) Carbon dioxide`;
+      
     } else if (difficulty <= 5) {
-      topics = ['states of matter', 'animal habitats', 'food chains', 'planets', 'human body systems'];
-      complexityNote = 'Include some scientific terminology but keep explanations clear.';
+      topics = ['human_body', 'states_of_matter', 'ecosystems', 'basic_physics'];
+      complexity = 'middle school level with scientific terms';
+      examples = `
+EXAMPLE:
+Question: Which organ is primarily responsible for filtering blood?
+A) Heart
+B) Liver
+C) Kidneys
+D) Lungs
+Correct Answer: C) Kidneys`;
+      
     } else if (difficulty <= 7) {
-      topics = ['chemical reactions', 'ecosystems', 'genetics basics', 'physics forces', 'cell biology'];
-      complexityNote = 'Use proper scientific terms and require deeper understanding.';
+      topics = ['cellular_biology', 'chemical_reactions', 'genetics_basics', 'forces_motion'];
+      complexity = 'high school level requiring deeper understanding';
+      examples = `
+EXAMPLE:
+Question: In which phase of mitosis do chromosomes line up at the cell's equator?
+A) Prophase
+B) Metaphase
+C) Anaphase  
+D) Telophase
+Correct Answer: B) Metaphase`;
+      
     } else {
-      topics = ['molecular biology', 'quantum physics basics', 'advanced chemistry', 'complex ecosystems', 'astrophysics'];
-      complexityNote = 'Advanced concepts requiring scientific reasoning and analysis.';
+      topics = ['molecular_biology', 'advanced_chemistry', 'physics_concepts', 'biochemistry'];
+      complexity = 'advanced level with complex scientific reasoning';
+      examples = `
+EXAMPLE:
+Question: What type of bond forms between amino acids in protein synthesis?
+A) Ionic bond
+B) Hydrogen bond
+C) Peptide bond
+D) Covalent bond
+Correct Answer: C) Peptide bond`;
     }
     
     const randomTopic = topics[Math.floor(Math.random() * topics.length)];
     
-    return `Create a science question about ${randomTopic} for difficulty level ${difficulty}/10.
+    return `You are an expert science educator creating assessment questions.
 
-DIFFICULTY REQUIREMENTS:
-- Level: ${difficulty}/10 (${difficulty <= 3 ? 'Easy' : difficulty <= 5 ? 'Medium' : difficulty <= 7 ? 'Hard' : 'Very Hard'})
-- Topic: ${randomTopic}
-- ${complexityNote}
-- Age level: ${userLevel}
+DIFFICULTY LEVEL: ${difficulty}/10
+TOPIC: ${randomTopic}
+COMPLEXITY: ${complexity}
 
-FORMAT REQUIREMENTS:
-- Exactly 4 answer choices labeled A, B, C, D
-- One clearly correct answer
-- Educational and scientifically accurate
+REQUIREMENTS:
+1. Create ONE scientifically accurate question
+2. Ensure factual correctness - verify scientific facts
+3. Use appropriate vocabulary for difficulty level ${difficulty}/10
+4. Format exactly as shown below
+5. Make distractors plausible but clearly incorrect
 
-Create this science question now:`;
+${examples}
+
+STRICT FORMATTING:
+- Question: [Clear, factual science question]
+- A) [First option]
+- B) [Second option]
+- C) [Third option]
+- D) [Fourth option]
+- Correct Answer: [Letter]) [Exact text from correct choice]
+
+SCIENTIFIC ACCURACY REQUIRED:
+- Verify all facts are correct
+- Use proper scientific terminology
+- Ensure the correct answer is actually correct
+- Make distractors scientifically plausible but wrong
+
+Generate ONE ${randomTopic} question at ${complexity}:`;
   }
 
   private buildHistoryPrompt(difficulty: number, userLevel: string): string {
     let topics: string[] = [];
-    let complexityNote = '';
+    let complexity = '';
+    let examples = '';
     
     if (difficulty <= 3) {
-      topics = ['famous leaders', 'basic dates', 'countries and flags', 'simple inventions'];
-      complexityNote = 'Focus on well-known facts and basic chronology.';
+      topics = ['famous_people', 'basic_dates', 'countries', 'simple_events'];
+      complexity = 'basic historical facts';
+      examples = `
+EXAMPLE:
+Question: Who was the first President of the United States?
+A) George Washington
+B) John Adams
+C) Thomas Jefferson
+D) Benjamin Franklin
+Correct Answer: A) George Washington`;
+      
     } else if (difficulty <= 5) {
-      topics = ['wars and battles', 'ancient civilizations', 'exploration', 'cultural movements'];
-      complexityNote = 'Include causes, effects, and connections between events.';
+      topics = ['wars_battles', 'ancient_civilizations', 'exploration', 'revolutions'];
+      complexity = 'intermediate historical knowledge';
+      examples = `
+EXAMPLE:
+Question: In which year did World War II end?
+A) 1944
+B) 1945
+C) 1946
+D) 1943
+Correct Answer: B) 1945`;
+      
     } else if (difficulty <= 7) {
-      topics = ['political systems', 'economic history', 'social movements', 'diplomatic relations'];
-      complexityNote = 'Require analysis of complex historical relationships and impacts.';
+      topics = ['political_systems', 'social_movements', 'economic_history', 'cultural_changes'];
+      complexity = 'advanced historical analysis';
+      examples = `
+EXAMPLE:
+Question: The Marshall Plan was primarily designed to:
+A) Rebuild Europe after WWII
+B) Contain communist expansion
+C) Establish NATO alliance
+D) Create the United Nations
+Correct Answer: A) Rebuild Europe after WWII`;
+      
     } else {
-      topics = ['historiography', 'comparative civilizations', 'historical methodology', 'complex causation'];
-      complexityNote = 'Advanced historical thinking and interpretation required.';
+      topics = ['historiography', 'complex_causation', 'comparative_history', 'historical_methodology'];
+      complexity = 'expert-level historical thinking';
+      examples = `
+EXAMPLE:
+Question: Which factor most directly contributed to the decline of the Roman Empire?
+A) Barbarian invasions alone
+B) Economic inflation and taxation
+C) Multiple interconnected factors
+D) Loss of military discipline
+Correct Answer: C) Multiple interconnected factors`;
     }
     
     const randomTopic = topics[Math.floor(Math.random() * topics.length)];
     
-    return `Create a history question about ${randomTopic} for difficulty level ${difficulty}/10.
+    return `You are a history expert creating educational assessments.
 
-DIFFICULTY REQUIREMENTS:
-- Level: ${difficulty}/10 (${difficulty <= 3 ? 'Easy' : difficulty <= 5 ? 'Medium' : difficulty <= 7 ? 'Hard' : 'Very Hard'})
-- Topic: ${randomTopic}
-- ${complexityNote}
-- Age level: ${userLevel}
+DIFFICULTY LEVEL: ${difficulty}/10
+TOPIC: ${randomTopic}
+COMPLEXITY: ${complexity}
 
-FORMAT REQUIREMENTS:
-- Exactly 4 answer choices labeled A, B, C, D
-- One clearly correct answer
-- Historically accurate
+REQUIREMENTS:
+1. Create ONE historically accurate question
+2. Verify all historical facts and dates
+3. Use complexity appropriate for level ${difficulty}/10
+4. Format exactly as specified
+5. Make distractors historically plausible but incorrect
 
-Create this history question now:`;
+${examples}
+
+STRICT FORMATTING:
+- Question: [Clear, factual history question]
+- A) [First option]
+- B) [Second option] 
+- C) [Third option]
+- D) [Fourth option]
+- Correct Answer: [Letter]) [Exact text from correct choice]
+
+HISTORICAL ACCURACY REQUIRED:
+- Double-check all dates and facts
+- Ensure correct answer is factually accurate
+- Make distractors plausible but wrong
+- Use proper historical context
+
+Generate ONE ${randomTopic} question with ${complexity}:`;
   }
 
   private buildEnglishPrompt(difficulty: number, userLevel: string): string {
     let topics: string[] = [];
-    let complexityNote = '';
+    let complexity = '';
+    let examples = '';
     
     if (difficulty <= 3) {
-      topics = ['basic vocabulary', 'simple grammar', 'spelling', 'sentence structure'];
-      complexityNote = 'Use common words and straightforward concepts.';
+      topics = ['basic_vocabulary', 'simple_grammar', 'parts_of_speech'];
+      complexity = 'elementary English skills';
+      examples = `
+EXAMPLE:
+Question: What is a synonym for "happy"?
+A) Joyful
+B) Sad
+C) Angry
+D) Tired
+Correct Answer: A) Joyful`;
+      
     } else if (difficulty <= 5) {
-      topics = ['synonyms/antonyms', 'punctuation', 'parts of speech', 'reading comprehension'];
-      complexityNote = 'Include moderate vocabulary and grammar rules.';
+      topics = ['synonyms_antonyms', 'sentence_structure', 'punctuation'];
+      complexity = 'intermediate English knowledge';
+      examples = `
+EXAMPLE:
+Question: Which sentence uses correct punctuation?
+A) Hello, how are you today.
+B) Hello how are you today?
+C) Hello, how are you today?
+D) Hello; how are you today.
+Correct Answer: C) Hello, how are you today?`;
+      
     } else if (difficulty <= 7) {
-      topics = ['advanced grammar', 'literary devices', 'complex vocabulary', 'writing techniques'];
-      complexityNote = 'Require understanding of nuanced language concepts.';
+      topics = ['literary_devices', 'advanced_grammar', 'reading_comprehension'];
+      complexity = 'advanced English skills';
+      examples = `
+EXAMPLE:
+Question: In the phrase "The wind whispered through the trees," what literary device is used?
+A) Metaphor
+B) Personification
+C) Alliteration
+D) Hyperbole
+Correct Answer: B) Personification`;
+      
     } else {
-      topics = ['literary analysis', 'rhetoric', 'advanced composition', 'linguistic patterns'];
-      complexityNote = 'Advanced language arts requiring critical thinking and analysis.';
+      topics = ['rhetoric', 'literary_analysis', 'complex_composition'];
+      complexity = 'expert-level English analysis';
+      examples = `
+EXAMPLE:
+Question: Which rhetorical appeal primarily uses logic and reasoning?
+A) Ethos
+B) Pathos  
+C) Logos
+D) Kairos
+Correct Answer: C) Logos`;
     }
     
     const randomTopic = topics[Math.floor(Math.random() * topics.length)];
     
-    return `Create an English question about ${randomTopic} for difficulty level ${difficulty}/10.
+    return `You are an English language expert creating educational questions.
 
-DIFFICULTY REQUIREMENTS:
-- Level: ${difficulty}/10 (${difficulty <= 3 ? 'Easy' : difficulty <= 5 ? 'Medium' : difficulty <= 7 ? 'Hard' : 'Very Hard'})
-- Topic: ${randomTopic}
-- ${complexityNote}
-- Age level: ${userLevel}
+DIFFICULTY LEVEL: ${difficulty}/10
+TOPIC: ${randomTopic}
+COMPLEXITY: ${complexity}
 
-FORMAT REQUIREMENTS:
-- Exactly 4 answer choices labeled A, B, C, D
-- One clearly correct answer
-- Educationally appropriate
+REQUIREMENTS:
+1. Create ONE linguistically/grammatically correct question
+2. Verify grammar and language rules
+3. Use vocabulary appropriate for level ${difficulty}/10
+4. Format exactly as specified
+5. Make distractors plausible but clearly incorrect
 
-Create this English question now:`;
+${examples}
+
+STRICT FORMATTING:
+- Question: [Clear, well-written English question]
+- A) [First option]
+- B) [Second option]
+- C) [Third option] 
+- D) [Fourth option]
+- Correct Answer: [Letter]) [Exact text from correct choice]
+
+LANGUAGE ACCURACY REQUIRED:
+- Verify grammar and spelling
+- Ensure correct answer is actually correct
+- Make distractors grammatically plausible but wrong
+- Use appropriate vocabulary level
+
+Generate ONE ${randomTopic} question with ${complexity}:`;
   }
 
   private buildGenericPrompt(subject: string, difficulty: number, userLevel: string): string {
-    const randomSeed = Math.floor(Math.random() * 1000);
-    
-    return `Create a ${subject} question for difficulty level ${difficulty}/10.
+    return `You are an expert educator creating assessment questions.
 
-DIFFICULTY REQUIREMENTS:
-- Exact difficulty: ${difficulty}/10
-- Make it appropriately challenging for this level
-- User level: ${userLevel}
-- Question ID: #${randomSeed}
+SUBJECT: ${subject}
+DIFFICULTY LEVEL: ${difficulty}/10
+USER LEVEL: ${userLevel}
 
-CONTENT REQUIREMENTS:
-- Subject: ${subject}
-- Exactly 4 answer choices (A, B, C, D)
-- One clearly correct answer
-- Educational and engaging
-- Appropriate for difficulty level ${difficulty}/10
+REQUIREMENTS:
+1. Create ONE factually correct question in ${subject}
+2. Verify accuracy of content and answer
+3. Use difficulty appropriate for level ${difficulty}/10
+4. Format exactly as specified below
+5. Make distractors plausible but clearly wrong
 
-Create question #${randomSeed} now:`;
+STRICT FORMATTING:
+- Question: [Clear, educational question about ${subject}]
+- A) [First option]
+- B) [Second option]
+- C) [Third option]
+- D) [Fourth option]
+- Correct Answer: [Letter]) [Exact text from correct choice]
+
+ACCURACY REQUIRED:
+- Double-check facts and content
+- Ensure correct answer is factually accurate
+- Make distractors believable but incorrect
+- Use appropriate terminology for difficulty ${difficulty}/10
+
+Generate ONE ${subject} question now:`;
   }
 
   async testConnection(): Promise<{
@@ -322,7 +492,7 @@ Create question #${randomSeed} now:`;
 
   private async callOllama(prompt: string): Promise<string> {
     try {
-      console.log('🤖 Calling Ollama with prompt:', prompt.substring(0, 200) + '...')
+      console.log('🤖 Calling Ollama with enhanced prompt:', prompt.substring(0, 200) + '...')
 
       const response = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
@@ -334,13 +504,15 @@ Create question #${randomSeed} now:`;
           prompt: prompt,
           stream: false,
           options: {
-            temperature: 0.7, // Good variety
-            top_p: 0.9,
-            top_k: 40, 
-            repeat_penalty: 1.1,
-            max_tokens: 500,
-            num_predict: 500,
-            seed: Math.floor(Math.random() * 1000000) // Random seed each time
+            temperature: 0.3, // Lower for more consistent formatting
+            top_p: 0.8,
+            top_k: 20,
+            repeat_penalty: 1.2, // Higher to prevent repetition
+            max_tokens: 300, // Shorter responses
+            num_predict: 300,
+            seed: Math.floor(Math.random() * 1000000),
+            // Add formatting constraints
+            stop: ["EXAMPLE:", "Note:", "Explanation:"] // Stop at these tokens
           }
         }),
       })
@@ -353,7 +525,7 @@ Create question #${randomSeed} now:`;
 
       const data: OllamaResponse = await response.json()
       
-      console.log('✅ Ollama response received:', data.response.substring(0, 200) + '...')
+      console.log('✅ Enhanced Ollama response received:', data.response.substring(0, 200) + '...')
       
       return data.response
     } catch (error) {
@@ -367,21 +539,8 @@ Create question #${randomSeed} now:`;
     }
   }
 
-  // Method to generate a quick test question
   async generateTestQuestion(): Promise<string> {
-    const prompt = `Create a simple math question:
-
-Question: What is 8 × 9?
-A) 72
-B) 81  
-C) 64
-D) 56
-
-Correct Answer: A) 72
-
-Format exactly like above.`
-
-    return this.callOllama(prompt)
+    return this.buildMathPrompt(3)
   }
 }
 
