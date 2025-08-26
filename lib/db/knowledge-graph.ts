@@ -6,27 +6,62 @@ export class KnowledgeGraphService {
   /**
    * Get topic by subject and inferred topic name from question
    */
-  static async getTopicByQuestion(subject: string, questionText: string, difficulty: number): Promise<any> {
-    try {
-      // Simple topic detection based on keywords in question
-      const topicSlug = this.detectTopicFromQuestion(subject, questionText, difficulty)
-      
-      const query = `
-        SELECT * FROM topics 
-        WHERE topic_slug = $1 
-        OR (subject = $2 AND difficulty_level <= $3)
-        ORDER BY ABS(difficulty_level - $3) ASC
-        LIMIT 1
-      `
-      
-      const result = await db.query(query, [topicSlug, subject, difficulty])
-      return result.rows[0] || null
-      
-    } catch (error) {
-      console.error('Error getting topic:', error)
-      return null
+ static async getTopicByQuestion(subject: string, questionText: string, difficulty: number): Promise<any> {
+  try {
+    const topicSlug = this.detectTopicFromQuestion(subject, questionText, difficulty)
+    console.log(`🔍 Detected topic slug: ${topicSlug}`)
+    
+    // Try exact match first
+    let query = `SELECT * FROM topics WHERE topic_slug = $1 LIMIT 1`
+    let result = await db.query(query, [topicSlug])
+    
+    if (result.rows.length > 0) {
+      console.log(`✅ Found exact match: ${result.rows[0].topic_name}`)
+      return result.rows[0]
     }
+    
+    // Try partial keyword matching
+    const keywords = topicSlug.split('-').filter(word => word.length > 2)
+    const likePatterns = keywords.map(keyword => `%${keyword}%`)
+    
+    query = `
+      SELECT * FROM topics 
+      WHERE subject = $1 
+        AND (topic_slug ILIKE ANY($2) OR topic_name ILIKE ANY($2))
+      ORDER BY ABS(difficulty_level - $3) ASC
+      LIMIT 1
+    `
+    
+    result = await db.query(query, [subject, likePatterns, difficulty])
+    
+    if (result.rows.length > 0) {
+      console.log(`✅ Found partial match: ${result.rows[0].topic_name}`)
+      return result.rows[0]
+    }
+    
+    // Create fallback topic if nothing found
+    console.log(`⚠️ No match found, using fallback topic`)
+    return {
+      id: `fallback-${Date.now()}`,
+      topic_name: this.generateTopicName(topicSlug),
+      topic_slug: topicSlug,
+      subject: subject,
+      difficulty_level: difficulty
+    }
+    
+  } catch (error) {
+    console.error('Error getting topic:', error)
+    return null
   }
+}
+
+private static generateTopicName(slug: string): string {
+  return slug
+    .replace(/^[^-]+-/, '')
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
 
   /**
    * Update user mastery for a topic based on quiz performance
@@ -265,65 +300,140 @@ export class KnowledgeGraphService {
   /**
    * Simple topic detection from question text and subject
    */
-  private static detectTopicFromQuestion(subject: string, questionText: string, difficulty: number): string {
-    const text = questionText.toLowerCase()
-    
-    // Math topic detection
-    if (subject === 'math') {
-      if (text.includes('×') || text.includes('*') || text.includes('multiply') || text.includes('times')) {
-        return difficulty < 0.3 ? 'math-basic-arithmetic' : 'math-basic-arithmetic'
-      }
-      if (text.includes('÷') || text.includes('divide')) return 'math-basic-arithmetic'
-      if (text.includes('%') || text.includes('percent')) return 'math-percentages'
-      if (text.includes('fraction') || text.includes('/')) return 'math-fractions'
-      if (text.includes('decimal')) return 'math-decimals'
-      if (text.includes('x =') || text.includes('solve') || text.includes('equation')) {
-        return difficulty > 0.6 ? 'math-quadratic-equations' : 'math-linear-equations'
-      }
-      if (text.includes('area') || text.includes('perimeter') || text.includes('triangle')) return 'math-basic-geometry'
-      if (text.includes('sin') || text.includes('cos') || text.includes('tan')) return 'math-trigonometry'
+ /**
+ * Enhanced topic detection from question text and subject
+ */
+private static detectTopicFromQuestion(subject: string, questionText: string, difficulty: number): string {
+  const text = questionText.toLowerCase()
+  
+  console.log(`🔍 Detecting topic for: "${questionText.substring(0, 60)}..."`);
+  
+  // Math topic detection
+  if (subject === 'math') {
+    if (text.includes('×') || text.includes('*') || text.includes('multiply') || text.includes('times')) {
+      return difficulty < 3 ? 'math-basic-arithmetic' : 'math-basic-arithmetic'
     }
-    
-    // Science topic detection
-    if (subject === 'science') {
-      if (text.includes('atom') || text.includes('element') || text.includes('periodic')) return 'science-atoms-elements'
-      if (text.includes('bond') || text.includes('ionic') || text.includes('covalent')) return 'science-chemical-bonds'
-      if (text.includes('reaction') || text.includes('equation') || text.includes('balance')) return 'science-chemical-reactions'
-      if (text.includes('cell') || text.includes('mitosis') || text.includes('membrane')) return 'science-cell-structure'
-      if (text.includes('photosynthesis') || text.includes('chlorophyll')) return 'science-photosynthesis'
-      if (text.includes('force') || text.includes('motion') || text.includes('newton')) return 'science-forces-motion'
-      if (text.includes('energy') || text.includes('kinetic') || text.includes('potential')) return 'science-energy'
+    if (text.includes('÷') || text.includes('divide') || text.includes('division')) return 'math-basic-arithmetic'
+    if (text.includes('%') || text.includes('percent')) return 'math-percentages'
+    if (text.includes('fraction') || text.includes('/') || text.includes('decimal')) return 'math-fractions'
+    if (text.includes('x =') || text.includes('solve') || text.includes('equation') || text.includes('x +') || text.includes('x -')) {
+      return difficulty > 6 ? 'math-quadratic-equations' : 'math-linear-equations'
     }
+    if (text.includes('area') || text.includes('perimeter') || text.includes('triangle') || text.includes('circle')) return 'math-basic-geometry'
+    if (text.includes('sin') || text.includes('cos') || text.includes('tan') || text.includes('trigonometry')) return 'math-trigonometry'
     
-    // History topic detection
-    if (subject === 'history') {
-      if (text.includes('ancient') || text.includes('egypt') || text.includes('mesopotamia')) return 'history-ancient-civilizations'
-      if (text.includes('rome') || text.includes('greece') || text.includes('classical')) return 'history-classical-antiquity'
-      if (text.includes('medieval') || text.includes('middle age')) return 'history-medieval-period'
-      if (text.includes('renaissance') || text.includes('leonardo')) return 'history-renaissance'
-      if (text.includes('world war') || text.includes('wwi') || text.includes('ww1')) return 'history-world-war-1'
-      if (text.includes('world war') || text.includes('wwii') || text.includes('ww2')) return 'history-world-war-2'
-      if (text.includes('cold war') || text.includes('soviet')) return 'history-cold-war'
-    }
-    
-    // English topic detection
-    if (subject === 'english') {
-      if (text.includes('noun') || text.includes('verb') || text.includes('adjective')) return 'english-parts-speech'
-      if (text.includes('sentence') || text.includes('subject') || text.includes('predicate')) return 'english-sentence-structure'
-      if (text.includes('comma') || text.includes('period') || text.includes('punctuat')) return 'english-punctuation'
-      if (text.includes('synonym') || text.includes('antonym') || text.includes('meaning')) return 'english-vocabulary-building'
-      if (text.includes('metaphor') || text.includes('simile') || text.includes('symbol')) return 'english-literary-devices'
-      if (text.includes('essay') || text.includes('paragraph') || text.includes('thesis')) return 'english-essay-writing'
-    }
-    
-    // Default fallback based on difficulty
-    const difficultyMap: Record<string, string> = {
-      'math': difficulty < 0.3 ? 'math-basic-arithmetic' : difficulty < 0.6 ? 'math-basic-algebra' : 'math-quadratic-equations',
-      'science': difficulty < 0.4 ? 'science-atoms-elements' : difficulty < 0.6 ? 'science-chemical-reactions' : 'science-genetics-basics',
-      'history': difficulty < 0.4 ? 'history-ancient-civilizations' : difficulty < 0.7 ? 'history-medieval-period' : 'history-cold-war',
-      'english': difficulty < 0.4 ? 'english-parts-speech' : difficulty < 0.7 ? 'english-writing-basics' : 'english-literature-analysis'
-    }
-    
-    return difficultyMap[subject] || `${subject}-basic-topic`
+    // Default math fallback
+    return difficulty < 3 ? 'math-basic-arithmetic' : difficulty < 6 ? 'math-basic-algebra' : 'math-quadratic-equations'
   }
+  
+  // Science topic detection with more comprehensive keywords
+  if (subject === 'science') {
+    // Chemical Reactions
+    if (text.includes('reaction') || text.includes('sodium') || text.includes('reacts with') || 
+        text.includes('chemical') || text.includes('displacement') || text.includes('synthesis') ||
+        text.includes('decomposition') || text.includes('produces') || text.includes('reactant')) {
+      console.log(`✅ Detected: Chemical Reactions`);
+      return 'science-chemical-reactions'
+    }
+    
+    // Catalysts and Enzymes
+    if (text.includes('catalyst') || text.includes('enzyme') || text.includes('activation energy') ||
+        text.includes('rate of reaction') || text.includes('enzymatic') || text.includes('catalytic') ||
+        text.includes('lowers') || text.includes('increases rate') || text.includes('without being consumed')) {
+      console.log(`✅ Detected: Catalysts and Enzymes`);
+      return 'science-catalysts-enzymes'
+    }
+    
+    // Physics - Energy and Motion
+    if (text.includes('kinetic energy') || text.includes('potential energy') || text.includes('energy') ||
+        text.includes('accelerates') || text.includes('velocity') || text.includes('motion') ||
+        text.includes('rest') || text.includes('conservation') || text.includes('mechanical')) {
+      console.log(`✅ Detected: Physics Energy`);
+      return 'science-physics-energy'
+    }
+    
+    // Thermodynamics
+    if (text.includes('thermodynamics') || text.includes('entropy') || text.includes('adiabatic') ||
+        text.includes('expansion') || text.includes('heat transfer') || text.includes('internal energy')) {
+      console.log(`✅ Detected: Thermodynamics`);
+      return 'science-thermodynamics'
+    }
+    
+    // Molecular Biology
+    if (text.includes('dna') || text.includes('recombination') || text.includes('chromosome') ||
+        text.includes('molecular biology') || text.includes('holliday junction') || text.includes('strand invasion') ||
+        text.includes('homologous') || text.includes('triplex') || text.includes('quadruplex')) {
+      console.log(`✅ Detected: Molecular Biology`);
+      return 'science-molecular-biology'
+    }
+    
+    // Cell Biology
+    if (text.includes('cell') || text.includes('mitosis') || text.includes('membrane') ||
+        text.includes('cytoplasm') || text.includes('nucleus') || text.includes('organelle')) {
+      console.log(`✅ Detected: Cell Biology`);
+      return 'science-cell-structure'
+    }
+    
+    // Basic Chemistry
+    if (text.includes('atom') || text.includes('element') || text.includes('periodic') ||
+        text.includes('chemical symbol') || text.includes('compound')) {
+      console.log(`✅ Detected: Basic Chemistry`);
+      return 'science-atoms-elements'
+    }
+    
+    // Forces and Motion
+    if (text.includes('force') || text.includes('newton') || text.includes('friction') ||
+        text.includes('gravity') || text.includes('acceleration')) {
+      console.log(`✅ Detected: Forces and Motion`);
+      return 'science-forces-motion'
+    }
+    
+    // Default science fallback based on difficulty
+    const scienceDefault = difficulty < 4 ? 'science-atoms-elements' : 
+                          difficulty < 7 ? 'science-chemical-reactions' : 
+                          'science-molecular-biology';
+    console.log(`⚠️ Using science default: ${scienceDefault}`);
+    return scienceDefault
+  }
+  
+  // History topic detection
+  if (subject === 'history') {
+    if (text.includes('ancient') || text.includes('egypt') || text.includes('mesopotamia')) return 'history-ancient-civilizations'
+    if (text.includes('rome') || text.includes('greece') || text.includes('classical')) return 'history-classical-antiquity'
+    if (text.includes('medieval') || text.includes('middle age')) return 'history-medieval-period'
+    if (text.includes('renaissance') || text.includes('leonardo')) return 'history-renaissance'
+    if (text.includes('world war') || text.includes('wwi') || text.includes('ww1')) return 'history-world-war-1'
+    if (text.includes('world war') || text.includes('wwii') || text.includes('ww2')) return 'history-world-war-2'
+    if (text.includes('cold war') || text.includes('soviet')) return 'history-cold-war'
+    
+    // Default history fallback
+    return difficulty < 4 ? 'history-ancient-civilizations' : 
+           difficulty < 7 ? 'history-medieval-period' : 'history-cold-war'
+  }
+  
+  // English topic detection
+  if (subject === 'english') {
+    if (text.includes('noun') || text.includes('verb') || text.includes('adjective') || 
+        text.includes('parts of speech') || text.includes('adverb')) return 'english-parts-speech'
+    if (text.includes('sentence') || text.includes('subject') || text.includes('predicate') ||
+        text.includes('clause') || text.includes('phrase')) return 'english-sentence-structure'
+    if (text.includes('comma') || text.includes('period') || text.includes('punctuat') ||
+        text.includes('semicolon') || text.includes('apostrophe')) return 'english-punctuation'
+    if (text.includes('synonym') || text.includes('antonym') || text.includes('meaning') ||
+        text.includes('definition') || text.includes('vocabulary')) return 'english-vocabulary-building'
+    if (text.includes('metaphor') || text.includes('simile') || text.includes('symbol') ||
+        text.includes('literary') || text.includes('figurative')) return 'english-literary-devices'
+    if (text.includes('essay') || text.includes('paragraph') || text.includes('thesis') ||
+        text.includes('writing') || text.includes('composition')) return 'english-essay-writing'
+    
+    // Default english fallback
+    return difficulty < 4 ? 'english-parts-speech' : 
+           difficulty < 7 ? 'english-writing-basics' : 'english-literature-analysis'
+  }
+  
+  // Final fallback
+  const finalDefault = `${subject}-basic-topic`;
+  console.log(`⚠️ Using final default: ${finalDefault}`);
+  return finalDefault
+}
 }

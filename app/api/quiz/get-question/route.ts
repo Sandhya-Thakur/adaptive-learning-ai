@@ -4,6 +4,7 @@ import { auth } from '@clerk/nextjs/server'
 import { aiService } from '@/lib/ai/ollama-service'
 import { db } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
+import MathVerificationService from '@/lib/db/math-verification'
 
 export async function POST(req: Request) {
   try {
@@ -42,8 +43,37 @@ export async function POST(req: Request) {
     // Parse AI response with smart parsing + fallback
     let question = parseAIResponse(aiResponse, difficulty, subject)
 
-    // NEW: Shuffle answer choices to remove AI bias
-    if (question.source === 'ai') {
+    // NEW: Math verification for accuracy
+    if (subject === 'math' && question.source === 'ai') {
+      const verification = MathVerificationService.verifyMathQuestion({
+        text: question.text,
+        options: question.options,
+        correctAnswer: question.correctAnswer,
+        difficulty: question.difficulty,
+        subject: question.subject
+      })
+
+      if (!verification.isValid) {
+        console.log(`❌ MATH ERROR DETECTED: ${verification.errors[0]}`)
+        
+        if (verification.correctedQuestion) {
+          question = {
+            ...verification.correctedQuestion,
+            id: question.id,
+            source: 'ai-corrected'
+          }
+          console.log('✅ MATH CORRECTED: Using verified question')
+        } else {
+          console.log('🔄 MATH FALLBACK: AI math was wrong, using guaranteed correct fallback')
+          question = generateMathFallback(difficulty, question.id)
+        }
+      } else {
+        console.log('✅ MATH VERIFIED: Question is mathematically correct')
+      }
+    }
+
+    // Shuffle answer choices to remove AI bias
+    if (question.source === 'ai' || question.source === 'ai-corrected') {
       question = shuffleAnswerChoices(question);
       console.log('🔀 Answer choices shuffled to remove AI bias')
     }
@@ -82,12 +112,15 @@ export async function POST(req: Request) {
   }
 }
 
-// NEW: Shuffle answer choices to eliminate AI bias
+// Shuffle answer choices to eliminate AI bias
 function shuffleAnswerChoices(question: any): any {
   const correctAnswer = question.correctAnswer;
   const shuffledOptions = [...question.options].sort(() => Math.random() - 0.5);
   
-  console.log(`🎲 Shuffled choices: Correct answer "${correctAnswer}" moved from position to random position`)
+  // Find where the correct answer ended up after shuffle
+  const correctIndex = shuffledOptions.findIndex(option => option === correctAnswer)
+  
+  console.log(`🎲 Shuffled choices: Correct answer "${correctAnswer}" is now at position ${correctIndex}`)
   
   return {
     ...question,
@@ -96,7 +129,7 @@ function shuffleAnswerChoices(question: any): any {
   };
 }
 
-// ENHANCED: Smart AI Response Parser
+// Smart AI Response Parser
 function parseAIResponse(aiResponse: string, difficulty: number, subject: string): any {
   console.log('🤖 RAW AI RESPONSE:', aiResponse.substring(0, 300) + '...')
   
@@ -119,7 +152,7 @@ function parseAIResponse(aiResponse: string, difficulty: number, subject: string
   }
 }
 
-// ENHANCED: Attempt to parse AI response intelligently
+// Attempt to parse AI response intelligently
 function attemptAIParsing(aiResponse: string, difficulty: number, subject: string): any | null {
   try {
     // More aggressive cleanup
@@ -210,18 +243,6 @@ function attemptAIParsing(aiResponse: string, difficulty: number, subject: strin
 
     const correctAnswer = choices[correctIndex]
 
-    // For complex math, skip validation (trust the AI)
-    const isComplexMath = questionText.includes('quadratic') || 
-                         questionText.includes('logarithm') || 
-                         questionText.includes('trigonometry') ||
-                         questionText.includes('derivative') ||
-                         difficulty > 7
-
-    if (subject === 'math' && !isComplexMath && !validateMathAnswer(questionText, correctAnswer)) {
-      console.log('❌ Math answer validation failed')
-      return null
-    }
-
     console.log(`✅ AI PARSE SUCCESS: "${questionText.substring(0, 50)}..." | Correct: ${correctLabel}) ${correctAnswer}`)
 
     return {
@@ -254,38 +275,7 @@ function validateQuestion(question: any): boolean {
   )
 }
 
-// Basic math validation (for simple cases)
-function validateMathAnswer(questionText: string, answer: string): boolean {
-  try {
-    // Simple multiplication validation
-    const multiplyMatch = questionText.match(/(\d+)\s*[×x*]\s*(\d+)/)
-    if (multiplyMatch) {
-      const num1 = parseInt(multiplyMatch[1])
-      const num2 = parseInt(multiplyMatch[2])
-      const expected = num1 * num2
-      return parseInt(answer) === expected
-    }
-
-    // Simple addition validation
-    const addMatch = questionText.match(/(\d+)\s*\+\s*(\d+)/)
-    if (addMatch) {
-      const num1 = parseInt(addMatch[1])
-      const num2 = parseInt(addMatch[2])
-      const expected = num1 + num2
-      return parseInt(answer) === expected
-    }
-
-    // For complex math (algebra, etc.), assume AI is correct
-    // This handles cases like "4x + (3/2)x = 7" where validation is complex
-    return true
-
-  } catch (error) {
-    // If validation fails, assume AI is correct for complex math
-    return true
-  }
-}
-
-// ENHANCED: Smart Fallback with Difficulty Scaling
+// Smart Fallback with Difficulty Scaling
 function generateSmartFallback(subject: string, difficulty: number, questionId: string): any {
   console.log(`🔄 Generating smart fallback for ${subject} at difficulty ${difficulty}`)
   
@@ -296,44 +286,138 @@ function generateSmartFallback(subject: string, difficulty: number, questionId: 
   return generateGenericFallback(subject, difficulty, questionId)
 }
 
-// Math fallback with REAL difficulty scaling
+// Math fallback with REAL difficulty scaling and GUARANTEED correct answers
 function generateMathFallback(difficulty: number, questionId: string): any {
+  console.log(`🧮 Generating GUARANTEED correct math at difficulty ${difficulty}`)
+  
   if (difficulty <= 2) {
-    // Easy: Single digit
-    const problems = [
-      { text: "What is 3 × 4?", options: ["12", "10", "14", "15"], correct: "12" },
-      { text: "What is 5 × 6?", options: ["30", "25", "35", "28"], correct: "30" },
-      { text: "What is 2 × 7?", options: ["14", "12", "16", "13"], correct: "14" }
-    ]
-    return selectRandomProblem(problems, difficulty, 'math', questionId)
+    // Easy: Single digit multiplication
+    const a = Math.floor(Math.random() * 6) + 2  // 2-7
+    const b = Math.floor(Math.random() * 6) + 2  // 2-7
+    const correct = a * b
+    const options = generateMathOptions(correct, 3)
+    
+    const question = {
+      id: questionId,
+      text: `What is ${a} × ${b}?`,
+      options: options.map(String),
+      correctAnswer: String(correct),
+      difficulty,
+      subject: 'math',
+      source: 'fallback'
+    }
+    
+    console.log(`✅ GUARANTEED CORRECT MATH: ${question.text} → Answer: ${correct}`)
+    console.log(`🧮 Verification: ${a} × ${b} = ${a * b}`)
+    return question
     
   } else if (difficulty <= 4) {
-    // Medium: Two digit
-    const problems = [
-      { text: "What is 12 × 5?", options: ["60", "55", "65", "50"], correct: "60" },
-      { text: "What is 15 × 4?", options: ["60", "55", "65", "50"], correct: "60" },
-      { text: "What is 25 × 3?", options: ["75", "70", "80", "65"], correct: "75" }
-    ]
-    return selectRandomProblem(problems, difficulty, 'math', questionId)
+    // Medium: Two digit multiplication or simple division
+    const a = Math.floor(Math.random() * 8) + 2  // 2-9
+    const b = Math.floor(Math.random() * 8) + 2  // 2-9
+    const correct = a * b
+    const options = generateMathOptions(correct, 5)
+    
+    const question = {
+      id: questionId,
+      text: `What is ${a} × ${b}?`,
+      options: options.map(String),
+      correctAnswer: String(correct),
+      difficulty,
+      subject: 'math',
+      source: 'fallback'
+    }
+    
+    console.log(`✅ GUARANTEED CORRECT MATH: ${question.text} → Answer: ${correct}`)
+    return question
     
   } else if (difficulty <= 6) {
-    // Hard: Fractions/percentages
-    const problems = [
-      { text: "What is 25% of 80?", options: ["20", "15", "25", "30"], correct: "20" },
-      { text: "What is 1/2 + 1/4?", options: ["3/4", "2/6", "1/6", "2/4"], correct: "3/4" },
-      { text: "What is 50% of 120?", options: ["60", "55", "65", "50"], correct: "60" }
-    ]
-    return selectRandomProblem(problems, difficulty, 'math', questionId)
+    // Hard: Percentage calculations
+    const percentages = [10, 20, 25, 50, 75]
+    const bases = [20, 40, 60, 80, 100, 120, 200]
+    const percent = percentages[Math.floor(Math.random() * percentages.length)]
+    const base = bases[Math.floor(Math.random() * bases.length)]
+    const correct = (percent / 100) * base
+    const options = generateMathOptions(correct, 10)
+    
+    const question = {
+      id: questionId,
+      text: `What is ${percent}% of ${base}?`,
+      options: options.map(String),
+      correctAnswer: String(correct),
+      difficulty,
+      subject: 'math',
+      source: 'fallback'
+    }
+    
+    console.log(`✅ GUARANTEED CORRECT MATH: ${question.text} → Answer: ${correct}`)
+    console.log(`🧮 Verification: ${percent}% of ${base} = ${(percent / 100) * base}`)
+    return question
     
   } else {
-    // Very Hard: Algebra
-    const problems = [
-      { text: "If 2x + 3 = 11, what is x?", options: ["4", "3", "5", "6"], correct: "4" },
-      { text: "If 3x - 5 = 10, what is x?", options: ["5", "4", "6", "3"], correct: "5" },
-      { text: "If x/2 + 4 = 7, what is x?", options: ["6", "5", "7", "8"], correct: "6" }
-    ]
-    return selectRandomProblem(problems, difficulty, 'math', questionId)
+    // Very Hard: Simple algebra
+    const coefficients = [2, 3, 4, 5]
+    const constants = [1, 2, 3, 4, 5]
+    const results = [7, 11, 15, 19, 23]
+    
+    const a = coefficients[Math.floor(Math.random() * coefficients.length)]
+    const b = constants[Math.floor(Math.random() * constants.length)]
+    const result = results[Math.floor(Math.random() * results.length)]
+    
+    // ax + b = result, so x = (result - b) / a
+    const correct = (result - b) / a
+    
+    // Only use if x is a whole number
+    if (correct === Math.floor(correct) && correct > 0) {
+      const options = generateMathOptions(correct, 2)
+      
+      const question = {
+        id: questionId,
+        text: `If ${a}x + ${b} = ${result}, what is x?`,
+        options: options.map(String),
+        correctAnswer: String(correct),
+        difficulty,
+        subject: 'math',
+        source: 'fallback'
+      }
+      
+      console.log(`✅ GUARANTEED CORRECT ALGEBRA: ${question.text} → Answer: x = ${correct}`)
+      console.log(`🧮 Verification: ${a}(${correct}) + ${b} = ${a * correct + b}`)
+      return question
+    } else {
+      // Fall back to percentage if algebra doesn't work cleanly
+      return generateMathFallback(6, questionId)
+    }
   }
+}
+
+// Generate plausible wrong answers for math questions
+function generateMathOptions(correct: number, variance: number): number[] {
+  const options = [correct]
+  
+  // Generate 3 plausible wrong answers
+  const wrongAnswers = [
+    correct + variance,
+    correct - variance,
+    Math.round(correct * 1.2), // 20% off
+  ]
+  
+  // Add unique wrong answers
+  wrongAnswers.forEach(wrong => {
+    if (wrong > 0 && wrong !== correct && !options.includes(wrong)) {
+      options.push(wrong)
+    }
+  })
+  
+  // Fill up to 4 options if needed
+  while (options.length < 4) {
+    const random = correct + Math.floor(Math.random() * variance * 2) - variance
+    if (random > 0 && !options.includes(random)) {
+      options.push(random)
+    }
+  }
+  
+  return options.slice(0, 4).sort(() => Math.random() - 0.5) // Shuffle
 }
 
 function generateGenericFallback(subject: string, difficulty: number, questionId: string): any {
@@ -356,11 +440,7 @@ function generateGenericFallback(subject: string, difficulty: number, questionId
   }
   
   const subjectQuestions = subjects[subject as keyof typeof subjects] || subjects.science
-  return selectRandomProblem(subjectQuestions, difficulty, subject, questionId)
-}
-
-function selectRandomProblem(problems: any[], difficulty: number, subject: string, questionId: string): any {
-  const randomProblem = problems[Math.floor(Math.random() * problems.length)]
+  const randomProblem = subjectQuestions[Math.floor(Math.random() * subjectQuestions.length)]
   
   return {
     id: questionId,
