@@ -1,11 +1,11 @@
 // app/dashboard/page.tsx
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { unstable_noStore as noStore } from "next/cache";
 import { db } from "@/lib/db";
 import { DashboardHelpers } from "@/lib/db/helpers";
 import { Brain, Target, Clock, Award } from "lucide-react";
 
-// Import optimized dashboard components
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import OptimizedStatsCard from "@/components/dashboard/StatsCard";
 import OptimizedQuickStart from "@/components/dashboard/QuickStart";
@@ -15,33 +15,44 @@ import OptimizedRecentActivity from "@/components/dashboard/RecentActivity";
 import OptimizedAchievements from "@/components/dashboard/Achievements";
 import KnowledgeGraphDashboard from "@/components/dashboard/KnowledgeGraphDashboard";
 
+export const revalidate = 0; // always fresh; or: export const dynamic = "force-dynamic";
+
+function formatStudyTime(minutes: number): string {
+  if (!minutes) return "0m";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+}
+
+function isToday(date: Date): boolean {
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
 export default async function Dashboard() {
+  noStore();
+
   const { userId } = await auth();
+  if (!userId) redirect("/");
 
-  if (!userId) {
-    redirect("/");
-  }
+  // Prefer clerkClient when you already have userId
+  const clerk = await clerkClient();
+  const user = await clerk.users.getUser(userId);
 
-  // Get current user from Clerk
-  const clerkUser = await currentUser();
-
-  if (!clerkUser?.emailAddresses[0]?.emailAddress) {
-    redirect("/");
-  }
-
-  const email = clerkUser.emailAddresses[0].emailAddress;
+  const email = user.primaryEmailAddress?.emailAddress;
+  if (!email) redirect("/");
 
   try {
-    // Ensure user exists in database
+    // Ensure user exists (handle race via upsert if your db layer supports it)
     let existingUser = await db.getUserByEmail(email);
-
     if (!existingUser) {
-      // Create user in our database
       await db.createUser({
-        name:
-          `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() ||
-          "Anonymous",
-        email: email,
+        name: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || "Anonymous",
+        email,
         current_subjects: [],
         knowledge_state: {},
         learning_velocity: {},
@@ -49,64 +60,33 @@ export default async function Dashboard() {
         study_streak: 0,
         total_questions_answered: 0,
       });
-      console.log(`User synced to database: ${email}`);
-
-      // Fetch the newly created user
       existingUser = await db.getUserByEmail(email);
     }
+    if (!existingUser) throw new Error("Failed to create or fetch user");
 
-    if (!existingUser) {
-      throw new Error("Failed to create or fetch user");
-    }
+    // Fetch dashboard data
+    const [realUserStats, realSubjectProgress, realRecentActivity, realAchievements] =
+      await Promise.all([
+        DashboardHelpers.getUserStats(existingUser.id),
+        DashboardHelpers.getSubjectProgress(existingUser.id),
+        DashboardHelpers.getRecentActivity(existingUser.id, 5),
+        DashboardHelpers.getUserAchievements(existingUser.id),
+      ]);
 
-    // Fetch real data using helper functions
-    console.log("Fetching real dashboard data...");
-
-    const [
-      realUserStats,
-      realSubjectProgress,
-      realRecentActivity,
-      realAchievements,
-    ] = await Promise.all([
-      DashboardHelpers.getUserStats(existingUser.id),
-      DashboardHelpers.getSubjectProgress(existingUser.id),
-      DashboardHelpers.getRecentActivity(existingUser.id, 5),
-      DashboardHelpers.getUserAchievements(existingUser.id),
-    ]);
-
-    console.log("Real data fetched:", {
-      questions: realUserStats.totalQuestionsAnswered,
-      accuracy: realUserStats.overallAccuracy,
-      subjects: realSubjectProgress.length,
-      activities: realRecentActivity.length,
-    });
-
-    // Format study time for display
-    const formatStudyTime = (minutes: number): string => {
-      if (minutes === 0) return "0m";
-      if (minutes < 60) return `${minutes}m`;
-      const hours = Math.floor(minutes / 60);
-      const remainingMinutes = minutes % 60;
-      return remainingMinutes > 0
-        ? `${hours}h ${remainingMinutes}m`
-        : `${hours}h`;
-    };
-
-    // Calculate today's goal progress (sessions completed today)
-    const today = new Date().toDateString();
-    const sessionsToday = realRecentActivity.filter(
-      (activity) => activity.time.includes("hour") && activity.type === "quiz"
-    ).length;
+    // Compute today's goal using timestamps
+    const sessionsToday = realRecentActivity.filter((a: any) => {
+      // expect a.timestamp ISO string; adjust if your schema differs
+      const when = a.timestamp ? new Date(a.timestamp) : null;
+      return a.type === "quiz" && when && isToday(when);
+    }).length;
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-        {/* Header with real data */}
         <DashboardHeader
-          userName={clerkUser?.firstName || "User"}
+          userName={user.firstName || "User"}
           currentStreak={realUserStats.currentStreak}
         />
 
-        {/* Real Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <OptimizedStatsCard
             icon={Brain}
@@ -142,98 +122,60 @@ export default async function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Left Column - Main Actions */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Quick Start */}
             <OptimizedQuickStart />
-
-            {/* Real Subject Progress */}
             <OptimizedSubjectProgress subjects={realSubjectProgress} />
           </div>
 
-          {/* Right Column - Sidebar */}
           <div className="space-y-6">
-            {/* Today's Goal with real progress */}
-            <OptimizedTodaysGoal
-              current={sessionsToday}
-              target={5}
-              label="Complete 5 quiz sessions"
-            />
-
-            {/* Real Recent Activity */}
+            <OptimizedTodaysGoal current={sessionsToday} target={5} label="Complete 5 quiz sessions" />
             <OptimizedRecentActivity
-              activities={realRecentActivity.map((activity) => ({
+              activities={realRecentActivity.map((activity: any) => ({
                 ...activity,
-                type: activity.type as "quiz" | "session" | "achievement",
+                type: (activity.type as "quiz" | "session" | "achievement") ?? "session",
               }))}
             />
           </div>
         </div>
 
-        {/* Knowledge Graph Section */}
         <div className="mt-8">
           <KnowledgeGraphDashboard userId={existingUser.id} />
         </div>
 
-        {/* Real Achievements */}
         <OptimizedAchievements
-          achievements={realAchievements.map((a) => ({
+          achievements={realAchievements.map((a: any) => ({
             ...a,
-            rarity:
-              a.rarity === "common" ||
-              a.rarity === "rare" ||
-              a.rarity === "epic"
-                ? a.rarity
-                : undefined,
+            rarity: ["common", "rare", "epic"].includes(a.rarity) ? a.rarity : undefined,
           }))}
         />
 
-        {/* Debug Info (remove in production) */}
         {process.env.NODE_ENV === "development" && (
           <div className="mt-8 p-4 bg-gray-100 rounded-lg text-xs">
             <h3 className="font-bold mb-2">Debug Info (Dev Only):</h3>
             <p>Total Sessions: {realUserStats.totalSessions}</p>
             <p>Average Session: {realUserStats.averageSessionDuration}min</p>
-            <p>
-              Subjects Tracked:{" "}
-              {realSubjectProgress.map((s) => s.subject).join(", ")}
-            </p>
+            <p>Subjects Tracked: {realSubjectProgress.map((s: any) => s.subject).join(", ")}</p>
             <p>Recent Activities: {realRecentActivity.length}</p>
-            <p>
-              Earned Achievements:{" "}
-              {realAchievements.filter((a) => a.earned).length}
-            </p>
+            <p>Earned Achievements: {realAchievements.filter((a: any) => a.earned).length}</p>
           </div>
         )}
       </div>
     );
   } catch (error) {
     console.error("Dashboard error:", error);
-
-    // Fallback UI for errors
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-        <DashboardHeader
-          userName={clerkUser?.firstName || "User"}
-          currentStreak={0}
-        />
-
+        <DashboardHeader userName={user.firstName || "User"} currentStreak={0} />
         <div className="bg-white rounded-xl shadow-sm p-8 text-center mb-8">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">
-            Welcome to AdaptiveLearn AI!
-          </h2>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Welcome to AdaptiveLearn AI!</h2>
           <p className="text-gray-600 mb-6">
-            Ready to start your personalized learning journey? Take your first
-            quiz to see your progress here.
+            Ready to start your personalized learning journey? Take your first quiz to see your progress here.
           </p>
           <OptimizedQuickStart />
         </div>
-
-        {/* Show knowledge graph structure even for new users */}
         <div className="mt-8">
           <KnowledgeGraphDashboard userId="new-user" />
         </div>
-
         {process.env.NODE_ENV === "development" && (
           <div className="mt-4 p-4 bg-red-100 rounded-lg">
             <p className="text-red-800 text-sm">
