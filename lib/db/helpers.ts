@@ -395,7 +395,7 @@ export class DashboardHelpers {
   }
 
   // Default fallback data
-  private static getDefaultStats() {
+  public static getDefaultStats() {
     return {
       totalQuestionsAnswered: 0,
       overallAccuracy: 0,
