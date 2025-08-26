@@ -1,4 +1,4 @@
-// components/dashboard/OptimizedStatsCard.tsx
+// components/dashboard/StatsCard.tsx
 import React from 'react'
 import { LucideIcon } from 'lucide-react'
 
@@ -9,6 +9,7 @@ interface StatsCardProps {
   iconColor: string
   iconBgColor: string
   trend?: { value: number; isPositive: boolean }
+  subtitle?: string
 }
 
 const OptimizedStatsCard: React.FC<StatsCardProps> = ({
@@ -17,11 +18,12 @@ const OptimizedStatsCard: React.FC<StatsCardProps> = ({
   value,
   iconColor,
   iconBgColor,
-  trend
+  trend,
+  subtitle
 }) => {
   return (
     <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center">
           <div className={`p-3 ${iconBgColor} rounded-xl`}>
             <Icon className={`h-6 w-6 ${iconColor}`} />
@@ -39,6 +41,9 @@ const OptimizedStatsCard: React.FC<StatsCardProps> = ({
           </div>
         )}
       </div>
+      {subtitle && (
+        <p className="text-xs text-gray-500 mt-2">{subtitle}</p>
+      )}
     </div>
   )
 }

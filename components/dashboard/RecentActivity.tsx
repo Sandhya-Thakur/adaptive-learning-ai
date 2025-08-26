@@ -1,6 +1,11 @@
-// components/dashboard/OptimizedRecentActivity.tsx
+// components/dashboard/RecentActivity.tsx
 import React from 'react'
-import { Calendar, Clock, Award as AwardIcon } from 'lucide-react'
+import { Calendar, Clock, Award as AwardIcon, Brain, Zap } from 'lucide-react'
+
+interface ActivityInsights {
+  performance: 'excellent' | 'good' | 'needs practice'
+  difficulty: string
+}
 
 interface ActivityData {
   action: string
@@ -8,6 +13,7 @@ interface ActivityData {
   time: string
   color: string
   type: 'quiz' | 'session' | 'achievement'
+  insights?: ActivityInsights
 }
 
 interface OptimizedRecentActivityProps {
@@ -16,9 +22,22 @@ interface OptimizedRecentActivityProps {
 
 const OptimizedRecentActivity: React.FC<OptimizedRecentActivityProps> = ({ activities }) => {
   const defaultActivities: ActivityData[] = [
-    { action: 'Completed Math Quiz', score: '8/10', time: '2 hours ago', color: 'text-green-600', type: 'quiz' },
-    { action: 'Started Science Session', score: '6/8', time: '1 day ago', color: 'text-blue-600', type: 'session' },
-    { action: 'Mastered Topic', score: 'Algebra', time: '2 days ago', color: 'text-purple-600', type: 'achievement' }
+    { 
+      action: 'Completed Math Quiz', 
+      score: '8/10', 
+      time: '2 hours ago', 
+      color: 'text-green-600', 
+      type: 'quiz',
+      insights: { performance: 'excellent', difficulty: 'adaptive' }
+    },
+    { 
+      action: 'Started Science Session', 
+      score: '6/8', 
+      time: '1 day ago', 
+      color: 'text-blue-600', 
+      type: 'session',
+      insights: { performance: 'good', difficulty: 'adaptive' }
+    }
   ]
 
   const activitiesToShow = activities || defaultActivities
@@ -33,6 +52,15 @@ const OptimizedRecentActivity: React.FC<OptimizedRecentActivityProps> = ({ activ
         return <AwardIcon className="h-4 w-4" />
       default:
         return <Calendar className="h-4 w-4" />
+    }
+  }
+
+  const getPerformanceColor = (performance?: string) => {
+    switch (performance) {
+      case 'excellent': return 'text-green-600 bg-green-50'
+      case 'good': return 'text-blue-600 bg-blue-50'
+      case 'needs practice': return 'text-yellow-600 bg-yellow-50'
+      default: return ''
     }
   }
 
@@ -51,10 +79,17 @@ const OptimizedRecentActivity: React.FC<OptimizedRecentActivityProps> = ({ activ
               </div>
               <div>
                 <p className="font-medium text-gray-800 text-sm">{activity.action}</p>
-                <p className="text-xs text-gray-500 flex items-center mt-1">
-                  <Clock className="h-3 w-3 mr-1" />
-                  {activity.time}
-                </p>
+                <div className="flex items-center space-x-2 mt-1">
+                  <p className="text-xs text-gray-500 flex items-center">
+                    <Clock className="h-3 w-3 mr-1" />
+                    {activity.time}
+                  </p>
+                  {activity.insights?.performance && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${getPerformanceColor(activity.insights.performance)}`}>
+                      {activity.insights.performance}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <span className={`font-semibold text-sm px-2 py-1 rounded-full bg-white shadow-sm ${activity.color}`}>

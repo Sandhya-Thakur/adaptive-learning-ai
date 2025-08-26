@@ -5,17 +5,26 @@ import { UserButton } from '@clerk/nextjs'
 interface DashboardHeaderProps {
   userName?: string
   currentStreak?: number
+  totalQuestions?: number
+  userLevel?: string
 }
 
-const DashboardHeader: React.FC<DashboardHeaderProps> = ({ 
-  userName = 'User', 
-  currentStreak = 7 
+const DashboardHeader: React.FC<DashboardHeaderProps> = ({
+  userName = 'User',
+  currentStreak = 0,
+  totalQuestions = 0,
+  userLevel = 'Beginner'
 }) => {
   return (
     <header className="flex justify-between items-center mb-8">
       <div>
         <h1 className="text-4xl font-bold text-gray-800">Learning Dashboard</h1>
         <p className="text-gray-600 mt-1">Welcome back, {userName}! Ready to learn today?</p>
+        {totalQuestions > 0 && (
+          <p className="text-sm text-gray-500 mt-1">
+            Level: {userLevel} • {totalQuestions} questions answered
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-4">
         <div className="text-right">

@@ -1,17 +1,19 @@
-// components/dashboard/OptimizedTodaysGoal.tsx
+// components/dashboard/TodaysGoal.tsx
 import React from 'react'
-import { Target, CheckCircle } from 'lucide-react'
+import { Target, CheckCircle, Zap } from 'lucide-react'
 
 interface OptimizedTodaysGoalProps {
   current?: number
   target?: number
   label?: string
+  bonus?: string | null
 }
 
 const OptimizedTodaysGoal: React.FC<OptimizedTodaysGoalProps> = ({
   current = 3,
   target = 5,
-  label = "Complete 5 quiz sessions"
+  label = "Complete 5 quiz sessions",
+  bonus = null
 }) => {
   const progress = (current / target) * 100
   const isCompleted = current >= target
@@ -22,10 +24,20 @@ const OptimizedTodaysGoal: React.FC<OptimizedTodaysGoalProps> = ({
         <Target className="h-5 w-5 text-red-500 mr-2" />
         Today's Goal
       </h3>
+      
+      {bonus && (
+        <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p className="text-xs text-yellow-800 flex items-center">
+            <Zap className="h-3 w-3 mr-1" />
+            {bonus}
+          </p>
+        </div>
+      )}
+      
       <div className="text-center">
         <div className={`relative inline-flex items-center justify-center w-24 h-24 rounded-full text-white font-bold text-xl mb-4 transition-all duration-300 ${
           isCompleted 
-            ? 'bg-gradient-to-br from-green-400 to-green-500 ring-4 ring-green-200' 
+            ? 'bg-gradient-to-br from-green-400 to-green-500 ring-4 ring-green-200'
             : 'bg-gradient-to-br from-blue-400 to-blue-500'
         }`}>
           {isCompleted ? (
@@ -39,7 +51,7 @@ const OptimizedTodaysGoal: React.FC<OptimizedTodaysGoalProps> = ({
           <div 
             className={`h-2 rounded-full transition-all duration-500 ${
               isCompleted ? 'bg-green-500' : 'bg-blue-500'
-            }`} 
+            }`}
             style={{ width: `${Math.min(progress, 100)}%` }}
           ></div>
         </div>

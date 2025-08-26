@@ -11,7 +11,8 @@ import {
   CheckCircle,
   ArrowRight,
   BookOpen,
-  Zap
+  Zap,
+  AlertCircle
 } from 'lucide-react'
 
 interface Topic {
@@ -20,7 +21,7 @@ interface Topic {
   topic_slug: string
   subject: string
   difficulty_level: number
-  estimated_time_minutes: number
+  estimated_time_minutes?: number
   mastery_level?: number
   questions_attempted?: number
   questions_correct?: number
@@ -39,121 +40,185 @@ interface LearningPathway {
   is_active: boolean
 }
 
-interface KnowledgeGraphDashboardProps {
-  userId: string
+interface KnowledgeData {
+  subject: string
+  overallProgress: number
+  totalTopics: number
+  masteredTopics: number
+  topics: Topic[]
+  overallConfidenceCalibration?: number
 }
 
-const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userId }) => {
+interface KnowledgeGraphDashboardProps {
+  userId: string
+  knowledgeData?: KnowledgeData | null
+}
+
+const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ 
+  userId, 
+  knowledgeData 
+}) => {
   const [selectedSubject, setSelectedSubject] = useState('math')
-  const [subjectData, setSubjectData] = useState<{
-    subject: string
-    overallProgress: number
-    topics: Topic[]
-  } | null>(null)
+  const [subjectData, setSubjectData] = useState<KnowledgeData | null>(null)
   const [pathways, setPathways] = useState<LearningPathway[]>([])
   const [recommendedTopics, setRecommendedTopics] = useState<Topic[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchKnowledgeGraphData()
-  }, [selectedSubject])
+  }, [selectedSubject, userId, knowledgeData])
 
   const fetchKnowledgeGraphData = async () => {
     setLoading(true)
+    setError(null)
+    
     try {
-      // In a real implementation, these would be API calls
-      // For now, we'll simulate the data structure
-      
-      // Simulate subject progress data
-      const mockSubjectData = {
-        subject: selectedSubject,
-        overallProgress: 67,
-        topics: [
-          {
-            id: '1',
-            topic_name: 'Basic Arithmetic',
-            topic_slug: 'math-basic-arithmetic',
-            subject: 'math',
-            difficulty_level: 0.1,
-            estimated_time_minutes: 20,
-            mastery_level: 0.95,
-            questions_attempted: 15,
-            questions_correct: 14,
-            last_practiced: '2024-08-24T10:30:00Z'
-          },
-          {
-            id: '2',
-            topic_name: 'Fractions',
-            topic_slug: 'math-fractions',
-            subject: 'math',
-            difficulty_level: 0.2,
-            estimated_time_minutes: 30,
-            mastery_level: 0.75,
-            questions_attempted: 12,
-            questions_correct: 9,
-            last_practiced: '2024-08-24T11:15:00Z'
-          },
-          {
-            id: '3',
-            topic_name: 'Linear Equations',
-            topic_slug: 'math-linear-equations',
-            subject: 'math',
-            difficulty_level: 0.5,
-            estimated_time_minutes: 50,
-            mastery_level: 0.45,
-            questions_attempted: 8,
-            questions_correct: 4,
-            last_practiced: '2024-08-24T12:00:00Z'
-          },
-          {
-            id: '4',
-            topic_name: 'Quadratic Equations',
-            topic_slug: 'math-quadratic-equations',
-            subject: 'math',
-            difficulty_level: 0.6,
-            estimated_time_minutes: 60,
-            mastery_level: 0,
-            questions_attempted: 0,
-            questions_correct: 0
-          }
-        ]
+      if (userId === 'new-user' || !knowledgeData) {
+        const demoData = generateDemoData(selectedSubject)
+        setSubjectData(demoData.subjectData)
+        setPathways(demoData.pathways)
+        setRecommendedTopics(demoData.recommended)
+        setLoading(false)
+        return
       }
 
-      const mockPathways: LearningPathway[] = [
+      try {
+        const response = await fetch(`/api/knowledge-graph/subject-progress?userId=${userId}&subject=${selectedSubject}`)
+        
+        if (response.ok) {
+          const data = await response.json()
+          setSubjectData(data.subjectData)
+          setPathways(data.pathways || [])
+          setRecommendedTopics(data.recommendedTopics || [])
+        } else {
+          throw new Error('API response not ok')
+        }
+      } catch {
+        const fallbackData = generateMockData(selectedSubject, knowledgeData)
+        setSubjectData(fallbackData.subjectData)
+        setPathways(fallbackData.pathways)
+        setRecommendedTopics(fallbackData.recommended)
+      }
+      
+    } catch (fetchError) {
+      console.error('Error fetching knowledge graph data:', fetchError)
+      setError('Failed to load knowledge graph data')
+      
+      const fallbackData = generateMockData(selectedSubject, knowledgeData)
+      setSubjectData(fallbackData.subjectData)
+      setPathways(fallbackData.pathways)
+      setRecommendedTopics(fallbackData.recommended)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const generateDemoData = (subject: string) => {
+    const topics: Topic[] = [
+      {
+        id: '1',
+        topic_name: 'Getting Started',
+        topic_slug: `${subject}-basics`,
+        subject,
+        difficulty_level: 1,
+        estimated_time_minutes: 15,
+        mastery_level: 0,
+        questions_attempted: 0,
+        questions_correct: 0
+      },
+      {
+        id: '2', 
+        topic_name: 'Intermediate Concepts',
+        topic_slug: `${subject}-intermediate`,
+        subject,
+        difficulty_level: 5,
+        estimated_time_minutes: 30,
+        mastery_level: 0,
+        questions_attempted: 0,
+        questions_correct: 0
+      }
+    ]
+
+    return {
+      subjectData: {
+        subject,
+        overallProgress: 0,
+        totalTopics: topics.length,
+        masteredTopics: 0,
+        topics
+      },
+      pathways: [
         {
           id: '1',
-          pathway_name: 'Mathematics Fundamentals',
-          subject: 'math',
-          description: 'Complete foundation from arithmetic to algebra',
-          progress_percentage: 67,
-          current_step: 3,
+          pathway_name: `${subject.charAt(0).toUpperCase() + subject.slice(1)} Fundamentals`,
+          subject,
+          description: 'Start your learning journey here',
+          progress_percentage: 0,
+          current_step: 1,
+          total_steps: 5,
+          is_active: false
+        }
+      ],
+      recommended: topics.slice(0, 1)
+    }
+  }
+
+  const generateMockData = (subject: string, knowledgeData?: KnowledgeData | null) => {
+    const baseProgress = knowledgeData?.overallProgress || Math.floor(Math.random() * 60) + 20
+    
+    const topics: Topic[] = [
+      {
+        id: '1',
+        topic_name: subject === 'math' ? 'Basic Arithmetic' : 
+                   subject === 'science' ? 'Atoms & Elements' :
+                   subject === 'history' ? 'Ancient Civilizations' : 'Parts of Speech',
+        topic_slug: `${subject}-basic`,
+        subject,
+        difficulty_level: 1,
+        estimated_time_minutes: 20,
+        mastery_level: Math.min(0.95, (baseProgress + 20) / 100),
+        questions_attempted: 15,
+        questions_correct: 14,
+        last_practiced: new Date(Date.now() - 86400000).toISOString()
+      },
+      {
+        id: '2',
+        topic_name: subject === 'math' ? 'Fractions' : 
+                   subject === 'science' ? 'Chemical Reactions' :
+                   subject === 'history' ? 'Classical Antiquity' : 'Sentence Structure',
+        topic_slug: `${subject}-intermediate`,
+        subject,
+        difficulty_level: 3,
+        estimated_time_minutes: 30,
+        mastery_level: Math.max(0.1, (baseProgress - 10) / 100),
+        questions_attempted: 12,
+        questions_correct: Math.floor(12 * ((baseProgress - 10) / 100)),
+        last_practiced: new Date(Date.now() - 3600000).toISOString()
+      }
+    ]
+
+    return {
+      subjectData: {
+        subject,
+        overallProgress: baseProgress,
+        totalTopics: topics.length,
+        masteredTopics: topics.filter(t => (t.mastery_level || 0) >= 0.8).length,
+        topics
+      },
+      pathways: [
+        {
+          id: '1',
+          pathway_name: `${subject.charAt(0).toUpperCase() + subject.slice(1)} Fundamentals`,
+          subject,
+          description: 'Complete foundation from basics to advanced',
+          progress_percentage: baseProgress,
+          current_step: 2,
           total_steps: 5,
           is_active: true
         }
-      ]
-
-      const mockRecommended: Topic[] = [
-        {
-          id: '3',
-          topic_name: 'Linear Equations',
-          topic_slug: 'math-linear-equations',
-          subject: 'math',
-          difficulty_level: 0.5,
-          estimated_time_minutes: 50,
-          mastery_level: 0.45,
-          questions_attempted: 8,
-          questions_correct: 4
-        }
-      ]
-
-      setSubjectData(mockSubjectData)
-      setPathways(mockPathways)
-      setRecommendedTopics(mockRecommended)
-      
-    } catch (error) {
-      console.error('Error fetching knowledge graph data:', error)
-    } finally {
-      setLoading(false)
+      ],
+      recommended: topics.filter(t => t.mastery_level && t.mastery_level > 0 && t.mastery_level < 0.8).slice(0, 2)
     }
   }
 
@@ -173,9 +238,9 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
     return 'Practicing'
   }
 
-  const canAccessTopic = (topic: Topic) => {
-    // In a real implementation, check prerequisites
-    return topic.difficulty_level <= 0.5 || (topic.mastery_level && topic.mastery_level > 0)
+  const canAccessTopic = (topic: Topic, index: number) => {
+    if (userId === 'new-user') return index === 0
+    return topic.difficulty_level <= 5 || (topic.mastery_level && topic.mastery_level > 0)
   }
 
   if (loading) {
@@ -183,6 +248,19 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
       <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+            <p className="text-gray-600">{error}</p>
+          </div>
         </div>
       </div>
     )
@@ -222,7 +300,7 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
                   {subjectData.subject} Progress
                 </h3>
                 <p className="text-sm text-gray-600">
-                  {subjectData.topics.filter(t => t.mastery_level && t.mastery_level >= 0.8).length} of {subjectData.topics.length} topics mastered
+                  {subjectData.masteredTopics} of {subjectData.totalTopics} topics mastered
                 </p>
               </div>
               <div className="text-right">
@@ -251,7 +329,7 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
           
           <div className="space-y-4">
             {subjectData?.topics.map((topic, index) => {
-              const isAccessible = canAccessTopic(topic)
+              const isAccessible = canAccessTopic(topic, index)
               const mastery = topic.mastery_level || 0
               
               return (
@@ -263,7 +341,6 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
                       : 'border-gray-100 bg-gray-50'
                   }`}
                 >
-                  {/* Connection Line to Previous Topic */}
                   {index > 0 && (
                     <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
                       <ArrowRight className="h-4 w-4 text-gray-400 transform rotate-90" />
@@ -290,8 +367,8 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
                           {topic.topic_name}
                         </h4>
                         <div className="flex items-center text-sm text-gray-500 space-x-4">
-                          <span>Difficulty: {Math.round(topic.difficulty_level * 10)}/10</span>
-                          <span>{topic.estimated_time_minutes} min</span>
+                          <span>Difficulty: {topic.difficulty_level}/10</span>
+                          <span>{topic.estimated_time_minutes || 30} min</span>
                           {topic.questions_attempted && topic.questions_attempted > 0 && (
                             <span>{topic.questions_correct}/{topic.questions_attempted} correct</span>
                           )}
@@ -334,7 +411,7 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
             </h3>
             
             <div className="space-y-3">
-              {recommendedTopics.map((topic) => (
+              {recommendedTopics.length > 0 ? recommendedTopics.map((topic) => (
                 <div key={topic.id} className="p-3 bg-green-50 rounded-lg border border-green-200">
                   <h4 className="font-medium text-green-800">{topic.topic_name}</h4>
                   <p className="text-sm text-green-600 mt-1">
@@ -344,7 +421,13 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
                     Practice Now
                   </button>
                 </div>
-              ))}
+              )) : (
+                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600">
+                    {userId === 'new-user' ? 'Start a quiz to get recommendations!' : 'Complete more topics to unlock recommendations'}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -374,7 +457,7 @@ const KnowledgeGraphDashboard: React.FC<KnowledgeGraphDashboardProps> = ({ userI
                   </div>
                   
                   <button className="text-sm bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition-colors">
-                    Continue Path
+                    {pathway.is_active ? 'Continue Path' : 'Start Path'}
                   </button>
                 </div>
               ))}

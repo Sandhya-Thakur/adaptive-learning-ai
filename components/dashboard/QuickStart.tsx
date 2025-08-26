@@ -1,4 +1,4 @@
-// components/dashboard/OptimizedQuickStart.tsx
+// components/dashboard/QuickStart.tsx
 import React from 'react'
 import Link from 'next/link'
 import { BookOpen, Zap, BarChart3, History } from 'lucide-react'

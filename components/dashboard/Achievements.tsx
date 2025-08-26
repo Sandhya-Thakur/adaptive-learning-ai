@@ -1,7 +1,6 @@
-
-// components/dashboard/OptimizedAchievements.tsx
+// components/dashboard/Achievements.tsx
 import React from 'react'
-import { Star, Award, Lock } from 'lucide-react'
+import { Star, Award, Lock, TrendingUp } from 'lucide-react'
 
 interface AchievementData {
   title: string
@@ -9,6 +8,7 @@ interface AchievementData {
   earned: boolean
   icon?: string
   rarity?: 'common' | 'rare' | 'epic'
+  progress?: number
 }
 
 interface OptimizedAchievementsProps {
@@ -17,9 +17,9 @@ interface OptimizedAchievementsProps {
 
 const OptimizedAchievements: React.FC<OptimizedAchievementsProps> = ({ achievements }) => {
   const defaultAchievements: AchievementData[] = [
-    { title: 'Quick Learner', desc: 'Answered 10 questions in under 5 minutes', earned: true, rarity: 'common' },
-    { title: 'Streak Master', desc: 'Maintained 7-day learning streak', earned: true, rarity: 'rare' },
-    { title: 'Perfect Score', desc: 'Get 100% on any quiz', earned: false, rarity: 'epic' }
+    { title: 'Quick Learner', desc: 'Answered 10 questions in under 5 minutes', earned: true, rarity: 'common', progress: 100 },
+    { title: 'Streak Master', desc: 'Maintained 7-day learning streak', earned: true, rarity: 'rare', progress: 100 },
+    { title: 'Perfect Score', desc: 'Get 100% on any quiz', earned: false, rarity: 'epic', progress: 75 }
   ]
 
   const achievementsToShow = achievements || defaultAchievements
@@ -81,6 +81,20 @@ const OptimizedAchievements: React.FC<OptimizedAchievementsProps> = ({ achieveme
               }`}>
                 {achievement.desc}
               </p>
+              {!achievement.earned && achievement.progress && achievement.progress > 0 && (
+                <div className="mt-2">
+                  <div className="flex items-center text-xs text-gray-500 mb-1">
+                    <TrendingUp className="h-3 w-3 mr-1" />
+                    Progress: {achievement.progress}%
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1">
+                    <div 
+                      className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                      style={{ width: `${achievement.progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
